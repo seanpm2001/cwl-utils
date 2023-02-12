@@ -12,6 +12,7 @@ import uuid as _uuid__  # pylint: disable=unused-import # noqa: F401
 import xml.sax  # nosec
 from abc import ABC, abstractmethod
 from io import StringIO
+from itertools import chain
 from typing import (
     Any,
     Dict,
@@ -139,10 +140,10 @@ class LoadingOptions:
         self.vocab = _vocab
         self.rvocab = _rvocab
 
-        if namespaces is not None:
+        if self.namespaces is not None:
             self.vocab = self.vocab.copy()
             self.rvocab = self.rvocab.copy()
-            for k, v in namespaces.items():
+            for k, v in self.namespaces.items():
                 self.vocab[k] = v
                 self.rvocab[v] = k
 
@@ -205,8 +206,12 @@ class Saveable(ABC):
         """Convert this object to a JSON/YAML friendly dictionary."""
 
 
-def load_field(val, fieldtype, baseuri, loadingOptions):
-    # type: (Union[str, Dict[str, str]], _Loader, str, LoadingOptions) -> Any
+def load_field(
+    val: Union[str, Dict[str, str]],
+    fieldtype: "_Loader",
+    baseuri: str,
+    loadingOptions: LoadingOptions,
+) -> Any:
     if isinstance(val, MutableMapping):
         if "$import" in val:
             if loadingOptions.fileuri is None:
@@ -280,14 +285,13 @@ def save_with_metadata(
 
 
 def expand_url(
-    url,  # type: str
-    base_url,  # type: str
-    loadingOptions,  # type: LoadingOptions
-    scoped_id=False,  # type: bool
-    vocab_term=False,  # type: bool
-    scoped_ref=None,  # type: Optional[int]
-):
-    # type: (...) -> str
+    url: str,
+    base_url: str,
+    loadingOptions: LoadingOptions,
+    scoped_id: bool = False,
+    vocab_term: bool = False,
+    scoped_ref: Optional[int] = None,
+) -> str:
     if url in ("@id", "@type"):
         return url
 
@@ -348,26 +352,28 @@ def expand_url(
 
 
 class _Loader:
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         pass
 
 
 class _AnyLoader(_Loader):
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if doc is not None:
             return doc
         raise ValidationException("Expected non-null")
 
 
 class _PrimitiveLoader(_Loader):
-    def __init__(self, tp):
-        # type: (Union[type, Tuple[Type[str], Type[str]]]) -> None
+    def __init__(self, tp: Union[type, Tuple[Type[str], Type[str]]]) -> None:
         self.tp = tp
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if not isinstance(doc, self.tp):
             raise ValidationException(
                 "Expected a {} but got {}".format(
@@ -376,25 +382,26 @@ class _PrimitiveLoader(_Loader):
             )
         return doc
 
-    def __repr__(self):  # type: () -> str
+    def __repr__(self) -> str:
         return str(self.tp)
 
 
 class _ArrayLoader(_Loader):
-    def __init__(self, items):
-        # type: (_Loader) -> None
+    def __init__(self, items: _Loader, flatten: bool = True) -> None:
         self.items = items
+        self.flatten = flatten
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if not isinstance(doc, MutableSequence):
             raise ValidationException(f"Expected a list, was {type(doc)}")
-        r = []  # type: List[Any]
-        errors = []  # type: List[SchemaSaladException]
+        r: List[Any] = []
+        errors: List[SchemaSaladException] = []
         for i in range(0, len(doc)):
             try:
                 lf = load_field(doc[i], _UnionLoader((self, self.items)), baseuri, loadingOptions)
-                if isinstance(lf, MutableSequence):
+                if self.flatten and isinstance(lf, MutableSequence):
                     r.extend(lf)
                 else:
                     r.append(lf)
@@ -404,8 +411,34 @@ class _ArrayLoader(_Loader):
             raise ValidationException("", None, errors)
         return r
 
-    def __repr__(self):  # type: () -> str
+    def __repr__(self) -> str:
         return f"array<{self.items}>"
+
+
+class _MapLoader(_Loader):
+    def __init__(self, values: _Loader, name: Optional[str] = None) -> None:
+        self.values = values
+        self.name = name
+
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
+        if not isinstance(doc, MutableMapping):
+            raise ValidationException(f"Expected a map, was {type(doc)}")
+        r: Dict[str, Any] = {}
+        errors: List[SchemaSaladException] = []
+        for k, v in doc.items():
+            try:
+                lf = load_field(v, self.values, baseuri, loadingOptions)
+                r[k] = lf
+            except ValidationException as e:
+                errors.append(e.with_sourceline(SourceLine(doc, k, str)))
+        if errors:
+            raise ValidationException("", None, errors)
+        return r
+
+    def __repr__(self) -> str:
+        return self.name if self.name is not None else f"map<string, {self.values}>"
 
 
 class _EnumLoader(_Loader):
@@ -413,23 +446,24 @@ class _EnumLoader(_Loader):
         self.symbols = symbols
         self.name = name
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if doc in self.symbols:
             return doc
         raise ValidationException(f"Expected one of {self.symbols}")
 
-    def __repr__(self):  # type: () -> str
+    def __repr__(self) -> str:
         return self.name
 
 
 class _SecondaryDSLLoader(_Loader):
-    def __init__(self, inner):
-        # type: (_Loader) -> None
+    def __init__(self, inner: _Loader) -> None:
         self.inner = inner
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         r: List[Dict[str, Any]] = []
         if isinstance(doc, MutableSequence):
             for d in doc:
@@ -491,17 +525,17 @@ class _SecondaryDSLLoader(_Loader):
 
 
 class _RecordLoader(_Loader):
-    def __init__(self, classtype):
-        # type: (Type[Saveable]) -> None
+    def __init__(self, classtype: Type[Saveable]) -> None:
         self.classtype = classtype
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if not isinstance(doc, MutableMapping):
             raise ValidationException(f"Expected a dict, was {type(doc)}")
         return self.classtype.fromDoc(doc, baseuri, loadingOptions, docRoot=docRoot)
 
-    def __repr__(self):  # type: () -> str
+    def __repr__(self) -> str:
         return str(self.classtype.__name__)
 
 
@@ -509,19 +543,25 @@ class _ExpressionLoader(_Loader):
     def __init__(self, items: Type[str]) -> None:
         self.items = items
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if not isinstance(doc, str):
             raise ValidationException(f"Expected a str, was {type(doc)}")
         return doc
 
 
 class _UnionLoader(_Loader):
-    def __init__(self, alternates: Sequence[_Loader]) -> None:
+    def __init__(self, alternates: Sequence[_Loader], name: Optional[str] = None) -> None:
         self.alternates = alternates
+        self.name = name
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def add_loaders(self, loaders: Sequence[_Loader]) -> None:
+        self.alternates = tuple(loader for loader in chain(self.alternates, loaders))
+
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         errors = []
         for t in self.alternates:
             try:
@@ -530,20 +570,22 @@ class _UnionLoader(_Loader):
                 errors.append(ValidationException(f"tried {t} but", None, [e]))
         raise ValidationException("", None, errors, "-")
 
-    def __repr__(self):  # type: () -> str
-        return " | ".join(str(a) for a in self.alternates)
+    def __repr__(self) -> str:
+        return self.name if self.name is not None else " | ".join(str(a) for a in self.alternates)
 
 
 class _URILoader(_Loader):
-    def __init__(self, inner, scoped_id, vocab_term, scoped_ref):
-        # type: (_Loader, bool, bool, Union[int, None]) -> None
+    def __init__(
+        self, inner: _Loader, scoped_id: bool, vocab_term: bool, scoped_ref: Optional[int]
+    ) -> None:
         self.inner = inner
         self.scoped_id = scoped_id
         self.vocab_term = vocab_term
         self.scoped_ref = scoped_ref
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if isinstance(doc, MutableSequence):
             newdoc = []
             for i in doc:
@@ -576,18 +618,16 @@ class _URILoader(_Loader):
 class _TypeDSLLoader(_Loader):
     typeDSLregex = re.compile(r"^([^[?]+)(\[\])?(\?)?$")
 
-    def __init__(self, inner, refScope):
-        # type: (_Loader, Union[int, None]) -> None
+    def __init__(self, inner: _Loader, refScope: Optional[int]) -> None:
         self.inner = inner
         self.refScope = refScope
 
     def resolve(
         self,
-        doc,  # type: str
-        baseuri,  # type: str
-        loadingOptions,  # type: LoadingOptions
-    ):
-        # type: (...) -> Union[List[Union[Dict[str, str], str]], Dict[str, str], str]
+        doc: str,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+    ) -> Union[List[Union[Dict[str, str], str]], Dict[str, str], str]:
         m = self.typeDSLregex.match(doc)
         if m:
             group1 = m.group(1)
@@ -610,10 +650,11 @@ class _TypeDSLLoader(_Loader):
             return third or second or first
         return doc
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if isinstance(doc, MutableSequence):
-            r = []  # type: List[Any]
+            r: List[Any] = []
             for d in doc:
                 if isinstance(d, str):
                     resolved = self.resolve(d, baseuri, loadingOptions)
@@ -634,16 +675,16 @@ class _TypeDSLLoader(_Loader):
 
 
 class _IdMapLoader(_Loader):
-    def __init__(self, inner, mapSubject, mapPredicate):
-        # type: (_Loader, str, Union[str, None]) -> None
+    def __init__(self, inner: _Loader, mapSubject: str, mapPredicate: Optional[str]) -> None:
         self.inner = inner
         self.mapSubject = mapSubject
         self.mapPredicate = mapPredicate
 
-    def load(self, doc, baseuri, loadingOptions, docRoot=None):
-        # type: (Any, str, LoadingOptions, Optional[str]) -> Any
+    def load(
+        self, doc: Any, baseuri: str, loadingOptions: LoadingOptions, docRoot: Optional[str] = None
+    ) -> Any:
         if isinstance(doc, MutableMapping):
-            r = []  # type: List[Any]
+            r: List[Any] = []
             for k in sorted(doc.keys()):
                 val = doc[k]
                 if isinstance(val, CommentedMap):
@@ -762,7 +803,7 @@ def _document_load_by_url(
     return loadingOptions.idx[url]
 
 
-def file_uri(path, split_frag=False):  # type: (str, bool) -> str
+def file_uri(path: str, split_frag: bool = False) -> str:
     if path.startswith("file://"):
         return path
     if split_frag:
@@ -840,7 +881,11 @@ def parser_info() -> str:
     return "org.w3id.cwl.v1_0"
 
 
-class RecordField(Saveable):
+class Documented(Saveable):
+    pass
+
+
+class RecordField(Documented):
     """
     A field of a record.
     """
@@ -862,21 +907,21 @@ class RecordField(Saveable):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
-        self.name = name
         self.doc = doc
+        self.name = name
         self.type = type
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, RecordField):
             return bool(
-                self.name == other.name
-                and self.doc == other.doc
+                self.doc == other.doc
+                and self.name == other.name
                 and self.type == other.type
             )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.name, self.doc, self.type))
+        return hash((self.doc, self.name, self.type))
 
     @classmethod
     def fromDoc(
@@ -922,7 +967,7 @@ class RecordField(Saveable):
             try:
                 doc = load_field(
                     _doc.get("doc"),
-                    union_of_None_type_or_strtype,
+                    union_of_None_type_or_strtype_or_array_of_strtype,
                     baseuri,
                     loadingOptions,
                 )
@@ -939,7 +984,7 @@ class RecordField(Saveable):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_2,
+                typedsl_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2,
                 baseuri,
                 loadingOptions,
             )
@@ -962,7 +1007,7 @@ class RecordField(Saveable):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `name`, `doc`, `type`".format(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -973,8 +1018,8 @@ class RecordField(Saveable):
         if _errors__:
             raise ValidationException("Trying 'RecordField'", None, _errors__)
         _constructed = cls(
-            name=name,
             doc=doc,
+            name=name,
             type=type,
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
@@ -1013,7 +1058,7 @@ class RecordField(Saveable):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["name", "doc", "type"])
+    attrs = frozenset(["doc", "name", "type"])
 
 
 class RecordSchema(Saveable):
@@ -1078,7 +1123,7 @@ class RecordSchema(Saveable):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Record_symbolLoader_2,
+                typedsl_Record_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -1160,6 +1205,7 @@ class EnumSchema(Saveable):
         self,
         symbols: Any,
         type: Any,
+        name: Optional[Any] = None,
         extension_fields: Optional[Dict[str, Any]] = None,
         loadingOptions: Optional[LoadingOptions] = None,
     ) -> None:
@@ -1172,16 +1218,21 @@ class EnumSchema(Saveable):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
+        self.name = name
         self.symbols = symbols
         self.type = type
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, EnumSchema):
-            return bool(self.symbols == other.symbols and self.type == other.type)
+            return bool(
+                self.name == other.name
+                and self.symbols == other.symbols
+                and self.type == other.type
+            )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.symbols, self.type))
+        return hash((self.name, self.symbols, self.type))
 
     @classmethod
     def fromDoc(
@@ -1196,6 +1247,33 @@ class EnumSchema(Saveable):
             _doc.lc.data = doc.lc.data
             _doc.lc.filename = doc.lc.filename
         _errors__ = []
+        if "name" in _doc:
+            try:
+                name = load_field(
+                    _doc.get("name"),
+                    uri_union_of_None_type_or_strtype_True_False_None,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'name' field is not valid because:",
+                        SourceLine(_doc, "name", str),
+                        [e],
+                    )
+                )
+        else:
+            name = None
+
+        __original_name_is_none = name is None
+        if name is None:
+            if docRoot is not None:
+                name = docRoot
+            else:
+                name = "_:" + str(_uuid__.uuid4())
+        if not __original_name_is_none:
+            baseuri = name
         try:
             symbols = load_field(
                 _doc.get("symbols"),
@@ -1214,7 +1292,7 @@ class EnumSchema(Saveable):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Enum_symbolLoader_2,
+                typedsl_Enum_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -1237,7 +1315,7 @@ class EnumSchema(Saveable):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `symbols`, `type`".format(
+                            "invalid field `{}`, expected one of: `name`, `symbols`, `type`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -1248,7 +1326,167 @@ class EnumSchema(Saveable):
         if _errors__:
             raise ValidationException("Trying 'EnumSchema'", None, _errors__)
         _constructed = cls(
+            name=name,
             symbols=symbols,
+            type=type,
+            extension_fields=extension_fields,
+            loadingOptions=loadingOptions,
+        )
+        loadingOptions.idx[name] = (_constructed, loadingOptions)
+        return _constructed
+
+    def save(
+        self, top: bool = False, base_url: str = "", relative_uris: bool = True
+    ) -> Dict[str, Any]:
+        r: Dict[str, Any] = {}
+
+        if relative_uris:
+            for ef in self.extension_fields:
+                r[prefix_url(ef, self.loadingOptions.vocab)] = self.extension_fields[ef]
+        else:
+            for ef in self.extension_fields:
+                r[ef] = self.extension_fields[ef]
+        if self.name is not None:
+            u = save_relative_uri(self.name, base_url, True, None, relative_uris)
+            r["name"] = u
+        if self.symbols is not None:
+            u = save_relative_uri(self.symbols, self.name, True, None, relative_uris)
+            r["symbols"] = u
+        if self.type is not None:
+            r["type"] = save(
+                self.type, top=False, base_url=self.name, relative_uris=relative_uris
+            )
+
+        # top refers to the directory level
+        if top:
+            if self.loadingOptions.namespaces:
+                r["$namespaces"] = self.loadingOptions.namespaces
+            if self.loadingOptions.schemas:
+                r["$schemas"] = self.loadingOptions.schemas
+        return r
+
+    attrs = frozenset(["name", "symbols", "type"])
+
+
+class ArraySchema(Saveable):
+    def __init__(
+        self,
+        items: Any,
+        type: Any,
+        flatten: Optional[Any] = None,
+        extension_fields: Optional[Dict[str, Any]] = None,
+        loadingOptions: Optional[LoadingOptions] = None,
+    ) -> None:
+
+        if extension_fields:
+            self.extension_fields = extension_fields
+        else:
+            self.extension_fields = CommentedMap()
+        if loadingOptions:
+            self.loadingOptions = loadingOptions
+        else:
+            self.loadingOptions = LoadingOptions()
+        self.flatten = flatten
+        self.items = items
+        self.type = type
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, ArraySchema):
+            return bool(
+                self.flatten == other.flatten
+                and self.items == other.items
+                and self.type == other.type
+            )
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.flatten, self.items, self.type))
+
+    @classmethod
+    def fromDoc(
+        cls,
+        doc: Any,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+        docRoot: Optional[str] = None,
+    ) -> "ArraySchema":
+        _doc = copy.copy(doc)
+        if hasattr(doc, "lc"):
+            _doc.lc.data = doc.lc.data
+            _doc.lc.filename = doc.lc.filename
+        _errors__ = []
+        if "flatten" in _doc:
+            try:
+                flatten = load_field(
+                    _doc.get("flatten"),
+                    uri_union_of_None_type_or_booltype_False_True_2,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'flatten' field is not valid because:",
+                        SourceLine(_doc, "flatten", str),
+                        [e],
+                    )
+                )
+        else:
+            flatten = None
+        try:
+            items = load_field(
+                _doc.get("items"),
+                uri_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_False_True_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'items' field is not valid because:",
+                    SourceLine(_doc, "items", str),
+                    [e],
+                )
+            )
+        try:
+            type = load_field(
+                _doc.get("type"),
+                typedsl_Array_nameLoader_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'type' field is not valid because:",
+                    SourceLine(_doc, "type", str),
+                    [e],
+                )
+            )
+        extension_fields: Dict[str, Any] = {}
+        for k in _doc.keys():
+            if k not in cls.attrs:
+                if ":" in k:
+                    ex = expand_url(
+                        k, "", loadingOptions, scoped_id=False, vocab_term=False
+                    )
+                    extension_fields[ex] = _doc[k]
+                else:
+                    _errors__.append(
+                        ValidationException(
+                            "invalid field `{}`, expected one of: `flatten`, `items`, `type`".format(
+                                k
+                            ),
+                            SourceLine(_doc, k, str),
+                        )
+                    )
+                    break
+
+        if _errors__:
+            raise ValidationException("Trying 'ArraySchema'", None, _errors__)
+        _constructed = cls(
+            flatten=flatten,
+            items=items,
             type=type,
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
@@ -1266,9 +1504,12 @@ class EnumSchema(Saveable):
         else:
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
-        if self.symbols is not None:
-            u = save_relative_uri(self.symbols, base_url, True, None, relative_uris)
-            r["symbols"] = u
+        if self.flatten is not None:
+            u = save_relative_uri(self.flatten, base_url, False, 2, relative_uris)
+            r["flatten"] = u
+        if self.items is not None:
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -1282,10 +1523,270 @@ class EnumSchema(Saveable):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["symbols", "type"])
+    attrs = frozenset(["flatten", "items", "type"])
 
 
-class ArraySchema(Saveable):
+class MapSchema(Saveable):
+    def __init__(
+        self,
+        type: Any,
+        values: Any,
+        extension_fields: Optional[Dict[str, Any]] = None,
+        loadingOptions: Optional[LoadingOptions] = None,
+    ) -> None:
+
+        if extension_fields:
+            self.extension_fields = extension_fields
+        else:
+            self.extension_fields = CommentedMap()
+        if loadingOptions:
+            self.loadingOptions = loadingOptions
+        else:
+            self.loadingOptions = LoadingOptions()
+        self.type = type
+        self.values = values
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, MapSchema):
+            return bool(self.type == other.type and self.values == other.values)
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.type, self.values))
+
+    @classmethod
+    def fromDoc(
+        cls,
+        doc: Any,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+        docRoot: Optional[str] = None,
+    ) -> "MapSchema":
+        _doc = copy.copy(doc)
+        if hasattr(doc, "lc"):
+            _doc.lc.data = doc.lc.data
+            _doc.lc.filename = doc.lc.filename
+        _errors__ = []
+        try:
+            type = load_field(
+                _doc.get("type"),
+                typedsl_Map_nameLoader_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'type' field is not valid because:",
+                    SourceLine(_doc, "type", str),
+                    [e],
+                )
+            )
+        try:
+            values = load_field(
+                _doc.get("values"),
+                uri_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_False_True_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'values' field is not valid because:",
+                    SourceLine(_doc, "values", str),
+                    [e],
+                )
+            )
+        extension_fields: Dict[str, Any] = {}
+        for k in _doc.keys():
+            if k not in cls.attrs:
+                if ":" in k:
+                    ex = expand_url(
+                        k, "", loadingOptions, scoped_id=False, vocab_term=False
+                    )
+                    extension_fields[ex] = _doc[k]
+                else:
+                    _errors__.append(
+                        ValidationException(
+                            "invalid field `{}`, expected one of: `type`, `values`".format(
+                                k
+                            ),
+                            SourceLine(_doc, k, str),
+                        )
+                    )
+                    break
+
+        if _errors__:
+            raise ValidationException("Trying 'MapSchema'", None, _errors__)
+        _constructed = cls(
+            type=type,
+            values=values,
+            extension_fields=extension_fields,
+            loadingOptions=loadingOptions,
+        )
+        return _constructed
+
+    def save(
+        self, top: bool = False, base_url: str = "", relative_uris: bool = True
+    ) -> Dict[str, Any]:
+        r: Dict[str, Any] = {}
+
+        if relative_uris:
+            for ef in self.extension_fields:
+                r[prefix_url(ef, self.loadingOptions.vocab)] = self.extension_fields[ef]
+        else:
+            for ef in self.extension_fields:
+                r[ef] = self.extension_fields[ef]
+        if self.type is not None:
+            r["type"] = save(
+                self.type, top=False, base_url=base_url, relative_uris=relative_uris
+            )
+        if self.values is not None:
+            u = save_relative_uri(self.values, base_url, False, 2, relative_uris)
+            r["values"] = u
+
+        # top refers to the directory level
+        if top:
+            if self.loadingOptions.namespaces:
+                r["$namespaces"] = self.loadingOptions.namespaces
+            if self.loadingOptions.schemas:
+                r["$schemas"] = self.loadingOptions.schemas
+        return r
+
+    attrs = frozenset(["type", "values"])
+
+
+class UnionSchema(Saveable):
+    def __init__(
+        self,
+        names: Any,
+        type: Any,
+        extension_fields: Optional[Dict[str, Any]] = None,
+        loadingOptions: Optional[LoadingOptions] = None,
+    ) -> None:
+
+        if extension_fields:
+            self.extension_fields = extension_fields
+        else:
+            self.extension_fields = CommentedMap()
+        if loadingOptions:
+            self.loadingOptions = loadingOptions
+        else:
+            self.loadingOptions = LoadingOptions()
+        self.names = names
+        self.type = type
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, UnionSchema):
+            return bool(self.names == other.names and self.type == other.type)
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.names, self.type))
+
+    @classmethod
+    def fromDoc(
+        cls,
+        doc: Any,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+        docRoot: Optional[str] = None,
+    ) -> "UnionSchema":
+        _doc = copy.copy(doc)
+        if hasattr(doc, "lc"):
+            _doc.lc.data = doc.lc.data
+            _doc.lc.filename = doc.lc.filename
+        _errors__ = []
+        try:
+            names = load_field(
+                _doc.get("names"),
+                uri_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_False_True_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'names' field is not valid because:",
+                    SourceLine(_doc, "names", str),
+                    [e],
+                )
+            )
+        try:
+            type = load_field(
+                _doc.get("type"),
+                typedsl_Union_nameLoader_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'type' field is not valid because:",
+                    SourceLine(_doc, "type", str),
+                    [e],
+                )
+            )
+        extension_fields: Dict[str, Any] = {}
+        for k in _doc.keys():
+            if k not in cls.attrs:
+                if ":" in k:
+                    ex = expand_url(
+                        k, "", loadingOptions, scoped_id=False, vocab_term=False
+                    )
+                    extension_fields[ex] = _doc[k]
+                else:
+                    _errors__.append(
+                        ValidationException(
+                            "invalid field `{}`, expected one of: `names`, `type`".format(
+                                k
+                            ),
+                            SourceLine(_doc, k, str),
+                        )
+                    )
+                    break
+
+        if _errors__:
+            raise ValidationException("Trying 'UnionSchema'", None, _errors__)
+        _constructed = cls(
+            names=names,
+            type=type,
+            extension_fields=extension_fields,
+            loadingOptions=loadingOptions,
+        )
+        return _constructed
+
+    def save(
+        self, top: bool = False, base_url: str = "", relative_uris: bool = True
+    ) -> Dict[str, Any]:
+        r: Dict[str, Any] = {}
+
+        if relative_uris:
+            for ef in self.extension_fields:
+                r[prefix_url(ef, self.loadingOptions.vocab)] = self.extension_fields[ef]
+        else:
+            for ef in self.extension_fields:
+                r[ef] = self.extension_fields[ef]
+        if self.names is not None:
+            u = save_relative_uri(self.names, base_url, False, 2, relative_uris)
+            r["names"] = u
+        if self.type is not None:
+            r["type"] = save(
+                self.type, top=False, base_url=base_url, relative_uris=relative_uris
+            )
+
+        # top refers to the directory level
+        if top:
+            if self.loadingOptions.namespaces:
+                r["$namespaces"] = self.loadingOptions.namespaces
+            if self.loadingOptions.schemas:
+                r["$schemas"] = self.loadingOptions.schemas
+        return r
+
+    attrs = frozenset(["names", "type"])
+
+
+class CWLArraySchema(Saveable):
     def __init__(
         self,
         items: Any,
@@ -1306,7 +1807,7 @@ class ArraySchema(Saveable):
         self.type = type
 
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, ArraySchema):
+        if isinstance(other, CWLArraySchema):
             return bool(self.items == other.items and self.type == other.type)
         return False
 
@@ -1320,7 +1821,7 @@ class ArraySchema(Saveable):
         baseuri: str,
         loadingOptions: LoadingOptions,
         docRoot: Optional[str] = None,
-    ) -> "ArraySchema":
+    ) -> "CWLArraySchema":
         _doc = copy.copy(doc)
         if hasattr(doc, "lc"):
             _doc.lc.data = doc.lc.data
@@ -1329,7 +1830,7 @@ class ArraySchema(Saveable):
         try:
             items = load_field(
                 _doc.get("items"),
-                typedsl_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_2,
+                uri_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_False_True_2,
                 baseuri,
                 loadingOptions,
             )
@@ -1344,7 +1845,7 @@ class ArraySchema(Saveable):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Array_symbolLoader_2,
+                typedsl_cwl_array_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -1376,7 +1877,7 @@ class ArraySchema(Saveable):
                     break
 
         if _errors__:
-            raise ValidationException("Trying 'ArraySchema'", None, _errors__)
+            raise ValidationException("Trying 'CWLArraySchema'", None, _errors__)
         _constructed = cls(
             items=items,
             type=type,
@@ -1397,9 +1898,8 @@ class ArraySchema(Saveable):
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
         if self.items is not None:
-            r["items"] = save(
-                self.items, top=False, base_url=base_url, relative_uris=relative_uris
-            )
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -1414,6 +1914,316 @@ class ArraySchema(Saveable):
         return r
 
     attrs = frozenset(["items", "type"])
+
+
+class CWLRecordField(Documented):
+    """
+    A field of a record.
+    """
+
+    def __init__(
+        self,
+        name: Any,
+        type: Any,
+        doc: Optional[Any] = None,
+        extension_fields: Optional[Dict[str, Any]] = None,
+        loadingOptions: Optional[LoadingOptions] = None,
+    ) -> None:
+
+        if extension_fields:
+            self.extension_fields = extension_fields
+        else:
+            self.extension_fields = CommentedMap()
+        if loadingOptions:
+            self.loadingOptions = loadingOptions
+        else:
+            self.loadingOptions = LoadingOptions()
+        self.doc = doc
+        self.name = name
+        self.type = type
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, CWLRecordField):
+            return bool(
+                self.doc == other.doc
+                and self.name == other.name
+                and self.type == other.type
+            )
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.doc, self.name, self.type))
+
+    @classmethod
+    def fromDoc(
+        cls,
+        doc: Any,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+        docRoot: Optional[str] = None,
+    ) -> "CWLRecordField":
+        _doc = copy.copy(doc)
+        if hasattr(doc, "lc"):
+            _doc.lc.data = doc.lc.data
+            _doc.lc.filename = doc.lc.filename
+        _errors__ = []
+        if "name" in _doc:
+            try:
+                name = load_field(
+                    _doc.get("name"),
+                    uri_strtype_True_False_None,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'name' field is not valid because:",
+                        SourceLine(_doc, "name", str),
+                        [e],
+                    )
+                )
+        else:
+            name = None
+
+        __original_name_is_none = name is None
+        if name is None:
+            if docRoot is not None:
+                name = docRoot
+            else:
+                raise ValidationException("Missing name")
+        if not __original_name_is_none:
+            baseuri = name
+        if "doc" in _doc:
+            try:
+                doc = load_field(
+                    _doc.get("doc"),
+                    union_of_None_type_or_strtype_or_array_of_strtype,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'doc' field is not valid because:",
+                        SourceLine(_doc, "doc", str),
+                        [e],
+                    )
+                )
+        else:
+            doc = None
+        try:
+            type = load_field(
+                _doc.get("type"),
+                typedsl_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'type' field is not valid because:",
+                    SourceLine(_doc, "type", str),
+                    [e],
+                )
+            )
+        extension_fields: Dict[str, Any] = {}
+        for k in _doc.keys():
+            if k not in cls.attrs:
+                if ":" in k:
+                    ex = expand_url(
+                        k, "", loadingOptions, scoped_id=False, vocab_term=False
+                    )
+                    extension_fields[ex] = _doc[k]
+                else:
+                    _errors__.append(
+                        ValidationException(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`".format(
+                                k
+                            ),
+                            SourceLine(_doc, k, str),
+                        )
+                    )
+                    break
+
+        if _errors__:
+            raise ValidationException("Trying 'CWLRecordField'", None, _errors__)
+        _constructed = cls(
+            doc=doc,
+            name=name,
+            type=type,
+            extension_fields=extension_fields,
+            loadingOptions=loadingOptions,
+        )
+        loadingOptions.idx[name] = (_constructed, loadingOptions)
+        return _constructed
+
+    def save(
+        self, top: bool = False, base_url: str = "", relative_uris: bool = True
+    ) -> Dict[str, Any]:
+        r: Dict[str, Any] = {}
+
+        if relative_uris:
+            for ef in self.extension_fields:
+                r[prefix_url(ef, self.loadingOptions.vocab)] = self.extension_fields[ef]
+        else:
+            for ef in self.extension_fields:
+                r[ef] = self.extension_fields[ef]
+        if self.name is not None:
+            u = save_relative_uri(self.name, base_url, True, None, relative_uris)
+            r["name"] = u
+        if self.doc is not None:
+            r["doc"] = save(
+                self.doc, top=False, base_url=self.name, relative_uris=relative_uris
+            )
+        if self.type is not None:
+            r["type"] = save(
+                self.type, top=False, base_url=self.name, relative_uris=relative_uris
+            )
+
+        # top refers to the directory level
+        if top:
+            if self.loadingOptions.namespaces:
+                r["$namespaces"] = self.loadingOptions.namespaces
+            if self.loadingOptions.schemas:
+                r["$schemas"] = self.loadingOptions.schemas
+        return r
+
+    attrs = frozenset(["doc", "name", "type"])
+
+
+class CWLRecordSchema(Saveable):
+    def __init__(
+        self,
+        type: Any,
+        fields: Optional[Any] = None,
+        extension_fields: Optional[Dict[str, Any]] = None,
+        loadingOptions: Optional[LoadingOptions] = None,
+    ) -> None:
+
+        if extension_fields:
+            self.extension_fields = extension_fields
+        else:
+            self.extension_fields = CommentedMap()
+        if loadingOptions:
+            self.loadingOptions = loadingOptions
+        else:
+            self.loadingOptions = LoadingOptions()
+        self.fields = fields
+        self.type = type
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, CWLRecordSchema):
+            return bool(self.fields == other.fields and self.type == other.type)
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.fields, self.type))
+
+    @classmethod
+    def fromDoc(
+        cls,
+        doc: Any,
+        baseuri: str,
+        loadingOptions: LoadingOptions,
+        docRoot: Optional[str] = None,
+    ) -> "CWLRecordSchema":
+        _doc = copy.copy(doc)
+        if hasattr(doc, "lc"):
+            _doc.lc.data = doc.lc.data
+            _doc.lc.filename = doc.lc.filename
+        _errors__ = []
+        if "fields" in _doc:
+            try:
+                fields = load_field(
+                    _doc.get("fields"),
+                    idmap_fields_union_of_None_type_or_array_of_CWLRecordFieldLoader,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'fields' field is not valid because:",
+                        SourceLine(_doc, "fields", str),
+                        [e],
+                    )
+                )
+        else:
+            fields = None
+        try:
+            type = load_field(
+                _doc.get("type"),
+                typedsl_cwl_record_nameLoader_2,
+                baseuri,
+                loadingOptions,
+            )
+        except ValidationException as e:
+            _errors__.append(
+                ValidationException(
+                    "the 'type' field is not valid because:",
+                    SourceLine(_doc, "type", str),
+                    [e],
+                )
+            )
+        extension_fields: Dict[str, Any] = {}
+        for k in _doc.keys():
+            if k not in cls.attrs:
+                if ":" in k:
+                    ex = expand_url(
+                        k, "", loadingOptions, scoped_id=False, vocab_term=False
+                    )
+                    extension_fields[ex] = _doc[k]
+                else:
+                    _errors__.append(
+                        ValidationException(
+                            "invalid field `{}`, expected one of: `fields`, `type`".format(
+                                k
+                            ),
+                            SourceLine(_doc, k, str),
+                        )
+                    )
+                    break
+
+        if _errors__:
+            raise ValidationException("Trying 'CWLRecordSchema'", None, _errors__)
+        _constructed = cls(
+            fields=fields,
+            type=type,
+            extension_fields=extension_fields,
+            loadingOptions=loadingOptions,
+        )
+        return _constructed
+
+    def save(
+        self, top: bool = False, base_url: str = "", relative_uris: bool = True
+    ) -> Dict[str, Any]:
+        r: Dict[str, Any] = {}
+
+        if relative_uris:
+            for ef in self.extension_fields:
+                r[prefix_url(ef, self.loadingOptions.vocab)] = self.extension_fields[ef]
+        else:
+            for ef in self.extension_fields:
+                r[ef] = self.extension_fields[ef]
+        if self.fields is not None:
+            r["fields"] = save(
+                self.fields, top=False, base_url=base_url, relative_uris=relative_uris
+            )
+        if self.type is not None:
+            r["type"] = save(
+                self.type, top=False, base_url=base_url, relative_uris=relative_uris
+            )
+
+        # top refers to the directory level
+        if top:
+            if self.loadingOptions.namespaces:
+                r["$namespaces"] = self.loadingOptions.namespaces
+            if self.loadingOptions.schemas:
+                r["$schemas"] = self.loadingOptions.schemas
+        return r
+
+    attrs = frozenset(["fields", "type"])
 
 
 class File(Saveable):
@@ -2174,7 +2984,7 @@ class OutputSchema(SchemaBase):
     pass
 
 
-class InputRecordField(RecordField):
+class InputRecordField(CWLRecordField):
     def __init__(
         self,
         name: Any,
@@ -2194,8 +3004,8 @@ class InputRecordField(RecordField):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
-        self.name = name
         self.doc = doc
+        self.name = name
         self.type = type
         self.inputBinding = inputBinding
         self.label = label
@@ -2203,8 +3013,8 @@ class InputRecordField(RecordField):
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, InputRecordField):
             return bool(
-                self.name == other.name
-                and self.doc == other.doc
+                self.doc == other.doc
+                and self.name == other.name
                 and self.type == other.type
                 and self.inputBinding == other.inputBinding
                 and self.label == other.label
@@ -2212,7 +3022,7 @@ class InputRecordField(RecordField):
         return False
 
     def __hash__(self) -> int:
-        return hash((self.name, self.doc, self.type, self.inputBinding, self.label))
+        return hash((self.doc, self.name, self.type, self.inputBinding, self.label))
 
     @classmethod
     def fromDoc(
@@ -2258,7 +3068,7 @@ class InputRecordField(RecordField):
             try:
                 doc = load_field(
                     _doc.get("doc"),
-                    union_of_None_type_or_strtype,
+                    union_of_None_type_or_strtype_or_array_of_strtype,
                     baseuri,
                     loadingOptions,
                 )
@@ -2334,7 +3144,7 @@ class InputRecordField(RecordField):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `name`, `doc`, `type`, `inputBinding`, `label`".format(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`, `inputBinding`, `label`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -2345,8 +3155,8 @@ class InputRecordField(RecordField):
         if _errors__:
             raise ValidationException("Trying 'InputRecordField'", None, _errors__)
         _constructed = cls(
-            name=name,
             doc=doc,
+            name=name,
             type=type,
             inputBinding=inputBinding,
             label=label,
@@ -2398,10 +3208,10 @@ class InputRecordField(RecordField):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["name", "doc", "type", "inputBinding", "label"])
+    attrs = frozenset(["doc", "name", "type", "inputBinding", "label"])
 
 
-class InputRecordSchema(RecordSchema, InputSchema):
+class InputRecordSchema(CWLRecordSchema, InputSchema):
     def __init__(
         self,
         type: Any,
@@ -2499,7 +3309,7 @@ class InputRecordSchema(RecordSchema, InputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Record_symbolLoader_2,
+                typedsl_cwl_record_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -2604,8 +3414,8 @@ class InputEnumSchema(EnumSchema, InputSchema):
         self,
         symbols: Any,
         type: Any,
-        label: Optional[Any] = None,
         name: Optional[Any] = None,
+        label: Optional[Any] = None,
         inputBinding: Optional[Any] = None,
         extension_fields: Optional[Dict[str, Any]] = None,
         loadingOptions: Optional[LoadingOptions] = None,
@@ -2619,25 +3429,25 @@ class InputEnumSchema(EnumSchema, InputSchema):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
+        self.name = name
         self.symbols = symbols
         self.type = type
         self.label = label
-        self.name = name
         self.inputBinding = inputBinding
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, InputEnumSchema):
             return bool(
-                self.symbols == other.symbols
+                self.name == other.name
+                and self.symbols == other.symbols
                 and self.type == other.type
                 and self.label == other.label
-                and self.name == other.name
                 and self.inputBinding == other.inputBinding
             )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.symbols, self.type, self.label, self.name, self.inputBinding))
+        return hash((self.name, self.symbols, self.type, self.label, self.inputBinding))
 
     @classmethod
     def fromDoc(
@@ -2697,7 +3507,7 @@ class InputEnumSchema(EnumSchema, InputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Enum_symbolLoader_2,
+                typedsl_Enum_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -2756,7 +3566,7 @@ class InputEnumSchema(EnumSchema, InputSchema):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `symbols`, `type`, `label`, `name`, `inputBinding`".format(
+                            "invalid field `{}`, expected one of: `name`, `symbols`, `type`, `label`, `inputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -2767,10 +3577,10 @@ class InputEnumSchema(EnumSchema, InputSchema):
         if _errors__:
             raise ValidationException("Trying 'InputEnumSchema'", None, _errors__)
         _constructed = cls(
+            name=name,
             symbols=symbols,
             type=type,
             label=label,
-            name=name,
             inputBinding=inputBinding,
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
@@ -2819,10 +3629,10 @@ class InputEnumSchema(EnumSchema, InputSchema):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["symbols", "type", "label", "name", "inputBinding"])
+    attrs = frozenset(["name", "symbols", "type", "label", "inputBinding"])
 
 
-class InputArraySchema(ArraySchema, InputSchema):
+class InputArraySchema(CWLArraySchema, InputSchema):
     def __init__(
         self,
         items: Any,
@@ -2875,7 +3685,7 @@ class InputArraySchema(ArraySchema, InputSchema):
         try:
             items = load_field(
                 _doc.get("items"),
-                typedsl_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_2,
+                uri_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_False_True_2,
                 baseuri,
                 loadingOptions,
             )
@@ -2890,7 +3700,7 @@ class InputArraySchema(ArraySchema, InputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Array_symbolLoader_2,
+                typedsl_cwl_array_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -2981,9 +3791,8 @@ class InputArraySchema(ArraySchema, InputSchema):
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
         if self.items is not None:
-            r["items"] = save(
-                self.items, top=False, base_url=base_url, relative_uris=relative_uris
-            )
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -3011,7 +3820,7 @@ class InputArraySchema(ArraySchema, InputSchema):
     attrs = frozenset(["items", "type", "label", "inputBinding"])
 
 
-class OutputRecordField(RecordField):
+class OutputRecordField(CWLRecordField):
     def __init__(
         self,
         name: Any,
@@ -3030,23 +3839,23 @@ class OutputRecordField(RecordField):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
-        self.name = name
         self.doc = doc
+        self.name = name
         self.type = type
         self.outputBinding = outputBinding
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, OutputRecordField):
             return bool(
-                self.name == other.name
-                and self.doc == other.doc
+                self.doc == other.doc
+                and self.name == other.name
                 and self.type == other.type
                 and self.outputBinding == other.outputBinding
             )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.name, self.doc, self.type, self.outputBinding))
+        return hash((self.doc, self.name, self.type, self.outputBinding))
 
     @classmethod
     def fromDoc(
@@ -3092,7 +3901,7 @@ class OutputRecordField(RecordField):
             try:
                 doc = load_field(
                     _doc.get("doc"),
-                    union_of_None_type_or_strtype,
+                    union_of_None_type_or_strtype_or_array_of_strtype,
                     baseuri,
                     loadingOptions,
                 )
@@ -3150,7 +3959,7 @@ class OutputRecordField(RecordField):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `name`, `doc`, `type`, `outputBinding`".format(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`, `outputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -3161,8 +3970,8 @@ class OutputRecordField(RecordField):
         if _errors__:
             raise ValidationException("Trying 'OutputRecordField'", None, _errors__)
         _constructed = cls(
-            name=name,
             doc=doc,
+            name=name,
             type=type,
             outputBinding=outputBinding,
             extension_fields=extension_fields,
@@ -3209,10 +4018,10 @@ class OutputRecordField(RecordField):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["name", "doc", "type", "outputBinding"])
+    attrs = frozenset(["doc", "name", "type", "outputBinding"])
 
 
-class OutputRecordSchema(RecordSchema, OutputSchema):
+class OutputRecordSchema(CWLRecordSchema, OutputSchema):
     def __init__(
         self,
         type: Any,
@@ -3280,7 +4089,7 @@ class OutputRecordSchema(RecordSchema, OutputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Record_symbolLoader_2,
+                typedsl_cwl_record_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -3380,6 +4189,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
         self,
         symbols: Any,
         type: Any,
+        name: Optional[Any] = None,
         label: Optional[Any] = None,
         outputBinding: Optional[Any] = None,
         extension_fields: Optional[Dict[str, Any]] = None,
@@ -3394,6 +4204,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
+        self.name = name
         self.symbols = symbols
         self.type = type
         self.label = label
@@ -3402,7 +4213,8 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, OutputEnumSchema):
             return bool(
-                self.symbols == other.symbols
+                self.name == other.name
+                and self.symbols == other.symbols
                 and self.type == other.type
                 and self.label == other.label
                 and self.outputBinding == other.outputBinding
@@ -3410,7 +4222,9 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
         return False
 
     def __hash__(self) -> int:
-        return hash((self.symbols, self.type, self.label, self.outputBinding))
+        return hash(
+            (self.name, self.symbols, self.type, self.label, self.outputBinding)
+        )
 
     @classmethod
     def fromDoc(
@@ -3425,6 +4239,33 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
             _doc.lc.data = doc.lc.data
             _doc.lc.filename = doc.lc.filename
         _errors__ = []
+        if "name" in _doc:
+            try:
+                name = load_field(
+                    _doc.get("name"),
+                    uri_union_of_None_type_or_strtype_True_False_None,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'name' field is not valid because:",
+                        SourceLine(_doc, "name", str),
+                        [e],
+                    )
+                )
+        else:
+            name = None
+
+        __original_name_is_none = name is None
+        if name is None:
+            if docRoot is not None:
+                name = docRoot
+            else:
+                name = "_:" + str(_uuid__.uuid4())
+        if not __original_name_is_none:
+            baseuri = name
         try:
             symbols = load_field(
                 _doc.get("symbols"),
@@ -3443,7 +4284,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Enum_symbolLoader_2,
+                typedsl_Enum_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -3502,7 +4343,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `symbols`, `type`, `label`, `outputBinding`".format(
+                            "invalid field `{}`, expected one of: `name`, `symbols`, `type`, `label`, `outputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -3513,6 +4354,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
         if _errors__:
             raise ValidationException("Trying 'OutputEnumSchema'", None, _errors__)
         _constructed = cls(
+            name=name,
             symbols=symbols,
             type=type,
             label=label,
@@ -3520,6 +4362,7 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
         )
+        loadingOptions.idx[name] = (_constructed, loadingOptions)
         return _constructed
 
     def save(
@@ -3533,22 +4376,25 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
         else:
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
+        if self.name is not None:
+            u = save_relative_uri(self.name, base_url, True, None, relative_uris)
+            r["name"] = u
         if self.symbols is not None:
-            u = save_relative_uri(self.symbols, base_url, True, None, relative_uris)
+            u = save_relative_uri(self.symbols, self.name, True, None, relative_uris)
             r["symbols"] = u
         if self.type is not None:
             r["type"] = save(
-                self.type, top=False, base_url=base_url, relative_uris=relative_uris
+                self.type, top=False, base_url=self.name, relative_uris=relative_uris
             )
         if self.label is not None:
             r["label"] = save(
-                self.label, top=False, base_url=base_url, relative_uris=relative_uris
+                self.label, top=False, base_url=self.name, relative_uris=relative_uris
             )
         if self.outputBinding is not None:
             r["outputBinding"] = save(
                 self.outputBinding,
                 top=False,
-                base_url=base_url,
+                base_url=self.name,
                 relative_uris=relative_uris,
             )
 
@@ -3560,10 +4406,10 @@ class OutputEnumSchema(EnumSchema, OutputSchema):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["symbols", "type", "label", "outputBinding"])
+    attrs = frozenset(["name", "symbols", "type", "label", "outputBinding"])
 
 
-class OutputArraySchema(ArraySchema, OutputSchema):
+class OutputArraySchema(CWLArraySchema, OutputSchema):
     def __init__(
         self,
         items: Any,
@@ -3616,7 +4462,7 @@ class OutputArraySchema(ArraySchema, OutputSchema):
         try:
             items = load_field(
                 _doc.get("items"),
-                typedsl_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_2,
+                uri_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_False_True_2,
                 baseuri,
                 loadingOptions,
             )
@@ -3631,7 +4477,7 @@ class OutputArraySchema(ArraySchema, OutputSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Array_symbolLoader_2,
+                typedsl_cwl_array_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -3722,9 +4568,8 @@ class OutputArraySchema(ArraySchema, OutputSchema):
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
         if self.items is not None:
-            r["items"] = save(
-                self.items, top=False, base_url=base_url, relative_uris=relative_uris
-            )
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -3968,7 +4813,7 @@ class InputParameter(Parameter):
             try:
                 default = load_field(
                     _doc.get("default"),
-                    union_of_None_type_or_FileLoader_or_DirectoryLoader_or_Any_type,
+                    union_of_None_type_or_CWLObjectTypeLoader,
                     baseuri,
                     loadingOptions,
                 )
@@ -5396,8 +6241,8 @@ class CommandInputRecordField(InputRecordField):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
-        self.name = name
         self.doc = doc
+        self.name = name
         self.type = type
         self.inputBinding = inputBinding
         self.label = label
@@ -5405,8 +6250,8 @@ class CommandInputRecordField(InputRecordField):
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, CommandInputRecordField):
             return bool(
-                self.name == other.name
-                and self.doc == other.doc
+                self.doc == other.doc
+                and self.name == other.name
                 and self.type == other.type
                 and self.inputBinding == other.inputBinding
                 and self.label == other.label
@@ -5414,7 +6259,7 @@ class CommandInputRecordField(InputRecordField):
         return False
 
     def __hash__(self) -> int:
-        return hash((self.name, self.doc, self.type, self.inputBinding, self.label))
+        return hash((self.doc, self.name, self.type, self.inputBinding, self.label))
 
     @classmethod
     def fromDoc(
@@ -5460,7 +6305,7 @@ class CommandInputRecordField(InputRecordField):
             try:
                 doc = load_field(
                     _doc.get("doc"),
-                    union_of_None_type_or_strtype,
+                    union_of_None_type_or_strtype_or_array_of_strtype,
                     baseuri,
                     loadingOptions,
                 )
@@ -5536,7 +6381,7 @@ class CommandInputRecordField(InputRecordField):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `name`, `doc`, `type`, `inputBinding`, `label`".format(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`, `inputBinding`, `label`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -5549,8 +6394,8 @@ class CommandInputRecordField(InputRecordField):
                 "Trying 'CommandInputRecordField'", None, _errors__
             )
         _constructed = cls(
-            name=name,
             doc=doc,
+            name=name,
             type=type,
             inputBinding=inputBinding,
             label=label,
@@ -5602,7 +6447,7 @@ class CommandInputRecordField(InputRecordField):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["name", "doc", "type", "inputBinding", "label"])
+    attrs = frozenset(["doc", "name", "type", "inputBinding", "label"])
 
 
 class CommandInputRecordSchema(InputRecordSchema):
@@ -5703,7 +6548,7 @@ class CommandInputRecordSchema(InputRecordSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Record_symbolLoader_2,
+                typedsl_cwl_record_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -5810,8 +6655,8 @@ class CommandInputEnumSchema(InputEnumSchema):
         self,
         symbols: Any,
         type: Any,
-        label: Optional[Any] = None,
         name: Optional[Any] = None,
+        label: Optional[Any] = None,
         inputBinding: Optional[Any] = None,
         extension_fields: Optional[Dict[str, Any]] = None,
         loadingOptions: Optional[LoadingOptions] = None,
@@ -5825,25 +6670,25 @@ class CommandInputEnumSchema(InputEnumSchema):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
+        self.name = name
         self.symbols = symbols
         self.type = type
         self.label = label
-        self.name = name
         self.inputBinding = inputBinding
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, CommandInputEnumSchema):
             return bool(
-                self.symbols == other.symbols
+                self.name == other.name
+                and self.symbols == other.symbols
                 and self.type == other.type
                 and self.label == other.label
-                and self.name == other.name
                 and self.inputBinding == other.inputBinding
             )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.symbols, self.type, self.label, self.name, self.inputBinding))
+        return hash((self.name, self.symbols, self.type, self.label, self.inputBinding))
 
     @classmethod
     def fromDoc(
@@ -5903,7 +6748,7 @@ class CommandInputEnumSchema(InputEnumSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Enum_symbolLoader_2,
+                typedsl_Enum_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -5962,7 +6807,7 @@ class CommandInputEnumSchema(InputEnumSchema):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `symbols`, `type`, `label`, `name`, `inputBinding`".format(
+                            "invalid field `{}`, expected one of: `name`, `symbols`, `type`, `label`, `inputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -5975,10 +6820,10 @@ class CommandInputEnumSchema(InputEnumSchema):
                 "Trying 'CommandInputEnumSchema'", None, _errors__
             )
         _constructed = cls(
+            name=name,
             symbols=symbols,
             type=type,
             label=label,
-            name=name,
             inputBinding=inputBinding,
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
@@ -6027,7 +6872,7 @@ class CommandInputEnumSchema(InputEnumSchema):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["symbols", "type", "label", "name", "inputBinding"])
+    attrs = frozenset(["name", "symbols", "type", "label", "inputBinding"])
 
 
 class CommandInputArraySchema(InputArraySchema):
@@ -6083,7 +6928,7 @@ class CommandInputArraySchema(InputArraySchema):
         try:
             items = load_field(
                 _doc.get("items"),
-                typedsl_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_2,
+                uri_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_False_True_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6098,7 +6943,7 @@ class CommandInputArraySchema(InputArraySchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Array_symbolLoader_2,
+                typedsl_cwl_array_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6191,9 +7036,8 @@ class CommandInputArraySchema(InputArraySchema):
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
         if self.items is not None:
-            r["items"] = save(
-                self.items, top=False, base_url=base_url, relative_uris=relative_uris
-            )
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -6240,23 +7084,23 @@ class CommandOutputRecordField(OutputRecordField):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
-        self.name = name
         self.doc = doc
+        self.name = name
         self.type = type
         self.outputBinding = outputBinding
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, CommandOutputRecordField):
             return bool(
-                self.name == other.name
-                and self.doc == other.doc
+                self.doc == other.doc
+                and self.name == other.name
                 and self.type == other.type
                 and self.outputBinding == other.outputBinding
             )
         return False
 
     def __hash__(self) -> int:
-        return hash((self.name, self.doc, self.type, self.outputBinding))
+        return hash((self.doc, self.name, self.type, self.outputBinding))
 
     @classmethod
     def fromDoc(
@@ -6302,7 +7146,7 @@ class CommandOutputRecordField(OutputRecordField):
             try:
                 doc = load_field(
                     _doc.get("doc"),
-                    union_of_None_type_or_strtype,
+                    union_of_None_type_or_strtype_or_array_of_strtype,
                     baseuri,
                     loadingOptions,
                 )
@@ -6360,7 +7204,7 @@ class CommandOutputRecordField(OutputRecordField):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `name`, `doc`, `type`, `outputBinding`".format(
+                            "invalid field `{}`, expected one of: `doc`, `name`, `type`, `outputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -6373,8 +7217,8 @@ class CommandOutputRecordField(OutputRecordField):
                 "Trying 'CommandOutputRecordField'", None, _errors__
             )
         _constructed = cls(
-            name=name,
             doc=doc,
+            name=name,
             type=type,
             outputBinding=outputBinding,
             extension_fields=extension_fields,
@@ -6421,7 +7265,7 @@ class CommandOutputRecordField(OutputRecordField):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["name", "doc", "type", "outputBinding"])
+    attrs = frozenset(["doc", "name", "type", "outputBinding"])
 
 
 class CommandOutputRecordSchema(OutputRecordSchema):
@@ -6522,7 +7366,7 @@ class CommandOutputRecordSchema(OutputRecordSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Record_symbolLoader_2,
+                typedsl_cwl_record_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6629,6 +7473,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
         self,
         symbols: Any,
         type: Any,
+        name: Optional[Any] = None,
         label: Optional[Any] = None,
         outputBinding: Optional[Any] = None,
         extension_fields: Optional[Dict[str, Any]] = None,
@@ -6643,6 +7488,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
             self.loadingOptions = loadingOptions
         else:
             self.loadingOptions = LoadingOptions()
+        self.name = name
         self.symbols = symbols
         self.type = type
         self.label = label
@@ -6651,7 +7497,8 @@ class CommandOutputEnumSchema(OutputEnumSchema):
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, CommandOutputEnumSchema):
             return bool(
-                self.symbols == other.symbols
+                self.name == other.name
+                and self.symbols == other.symbols
                 and self.type == other.type
                 and self.label == other.label
                 and self.outputBinding == other.outputBinding
@@ -6659,7 +7506,9 @@ class CommandOutputEnumSchema(OutputEnumSchema):
         return False
 
     def __hash__(self) -> int:
-        return hash((self.symbols, self.type, self.label, self.outputBinding))
+        return hash(
+            (self.name, self.symbols, self.type, self.label, self.outputBinding)
+        )
 
     @classmethod
     def fromDoc(
@@ -6674,6 +7523,33 @@ class CommandOutputEnumSchema(OutputEnumSchema):
             _doc.lc.data = doc.lc.data
             _doc.lc.filename = doc.lc.filename
         _errors__ = []
+        if "name" in _doc:
+            try:
+                name = load_field(
+                    _doc.get("name"),
+                    uri_union_of_None_type_or_strtype_True_False_None,
+                    baseuri,
+                    loadingOptions,
+                )
+            except ValidationException as e:
+                _errors__.append(
+                    ValidationException(
+                        "the 'name' field is not valid because:",
+                        SourceLine(_doc, "name", str),
+                        [e],
+                    )
+                )
+        else:
+            name = None
+
+        __original_name_is_none = name is None
+        if name is None:
+            if docRoot is not None:
+                name = docRoot
+            else:
+                name = "_:" + str(_uuid__.uuid4())
+        if not __original_name_is_none:
+            baseuri = name
         try:
             symbols = load_field(
                 _doc.get("symbols"),
@@ -6692,7 +7568,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Enum_symbolLoader_2,
+                typedsl_Enum_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6751,7 +7627,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
                 else:
                     _errors__.append(
                         ValidationException(
-                            "invalid field `{}`, expected one of: `symbols`, `type`, `label`, `outputBinding`".format(
+                            "invalid field `{}`, expected one of: `name`, `symbols`, `type`, `label`, `outputBinding`".format(
                                 k
                             ),
                             SourceLine(_doc, k, str),
@@ -6764,6 +7640,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
                 "Trying 'CommandOutputEnumSchema'", None, _errors__
             )
         _constructed = cls(
+            name=name,
             symbols=symbols,
             type=type,
             label=label,
@@ -6771,6 +7648,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
             extension_fields=extension_fields,
             loadingOptions=loadingOptions,
         )
+        loadingOptions.idx[name] = (_constructed, loadingOptions)
         return _constructed
 
     def save(
@@ -6784,22 +7662,25 @@ class CommandOutputEnumSchema(OutputEnumSchema):
         else:
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
+        if self.name is not None:
+            u = save_relative_uri(self.name, base_url, True, None, relative_uris)
+            r["name"] = u
         if self.symbols is not None:
-            u = save_relative_uri(self.symbols, base_url, True, None, relative_uris)
+            u = save_relative_uri(self.symbols, self.name, True, None, relative_uris)
             r["symbols"] = u
         if self.type is not None:
             r["type"] = save(
-                self.type, top=False, base_url=base_url, relative_uris=relative_uris
+                self.type, top=False, base_url=self.name, relative_uris=relative_uris
             )
         if self.label is not None:
             r["label"] = save(
-                self.label, top=False, base_url=base_url, relative_uris=relative_uris
+                self.label, top=False, base_url=self.name, relative_uris=relative_uris
             )
         if self.outputBinding is not None:
             r["outputBinding"] = save(
                 self.outputBinding,
                 top=False,
-                base_url=base_url,
+                base_url=self.name,
                 relative_uris=relative_uris,
             )
 
@@ -6811,7 +7692,7 @@ class CommandOutputEnumSchema(OutputEnumSchema):
                 r["$schemas"] = self.loadingOptions.schemas
         return r
 
-    attrs = frozenset(["symbols", "type", "label", "outputBinding"])
+    attrs = frozenset(["name", "symbols", "type", "label", "outputBinding"])
 
 
 class CommandOutputArraySchema(OutputArraySchema):
@@ -6867,7 +7748,7 @@ class CommandOutputArraySchema(OutputArraySchema):
         try:
             items = load_field(
                 _doc.get("items"),
-                typedsl_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_2,
+                uri_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_False_True_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6882,7 +7763,7 @@ class CommandOutputArraySchema(OutputArraySchema):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_Array_symbolLoader_2,
+                typedsl_cwl_array_nameLoader_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6975,9 +7856,8 @@ class CommandOutputArraySchema(OutputArraySchema):
             for ef in self.extension_fields:
                 r[ef] = self.extension_fields[ef]
         if self.items is not None:
-            r["items"] = save(
-                self.items, top=False, base_url=base_url, relative_uris=relative_uris
-            )
+            u = save_relative_uri(self.items, base_url, False, 2, relative_uris)
+            r["items"] = u
         if self.type is not None:
             r["type"] = save(
                 self.type, top=False, base_url=base_url, relative_uris=relative_uris
@@ -7225,7 +8105,7 @@ class CommandInputParameter(InputParameter):
             try:
                 default = load_field(
                     _doc.get("default"),
-                    union_of_None_type_or_FileLoader_or_DirectoryLoader_or_Any_type,
+                    union_of_None_type_or_CWLObjectTypeLoader,
                     baseuri,
                     loadingOptions,
                 )
@@ -11056,7 +11936,7 @@ class WorkflowStepInput(Sink):
             try:
                 default = load_field(
                     _doc.get("default"),
-                    union_of_None_type_or_FileLoader_or_DirectoryLoader_or_Any_type,
+                    union_of_None_type_or_CWLObjectTypeLoader,
                     baseuri,
                     loadingOptions,
                 )
@@ -12533,6 +13413,11 @@ class StepInputExpressionRequirement(ProcessRequirement):
 _vocab = {
     "Any": "https://w3id.org/cwl/salad#Any",
     "ArraySchema": "https://w3id.org/cwl/salad#ArraySchema",
+    "CWLArraySchema": "https://w3id.org/cwl/cwl#CWLArraySchema",
+    "CWLInputFile": "https://w3id.org/cwl/cwl#CWLInputFile",
+    "CWLObjectType": "https://w3id.org/cwl/cwl#CWLObjectType",
+    "CWLRecordField": "https://w3id.org/cwl/cwl#CWLRecordField",
+    "CWLRecordSchema": "https://w3id.org/cwl/cwl#CWLRecordSchema",
     "CWLType": "https://w3id.org/cwl/cwl#CWLType",
     "CWLVersion": "https://w3id.org/cwl/cwl#CWLVersion",
     "CommandInputArraySchema": "https://w3id.org/cwl/cwl#CommandInputArraySchema",
@@ -12551,6 +13436,7 @@ _vocab = {
     "Directory": "https://w3id.org/cwl/cwl#Directory",
     "Dirent": "https://w3id.org/cwl/cwl#Dirent",
     "DockerRequirement": "https://w3id.org/cwl/cwl#DockerRequirement",
+    "Documented": "https://w3id.org/cwl/salad#Documented",
     "EnumSchema": "https://w3id.org/cwl/salad#EnumSchema",
     "EnvVarRequirement": "https://w3id.org/cwl/cwl#EnvVarRequirement",
     "EnvironmentDef": "https://w3id.org/cwl/cwl#EnvironmentDef",
@@ -12569,6 +13455,7 @@ _vocab = {
     "InputRecordSchema": "https://w3id.org/cwl/cwl#InputRecordSchema",
     "InputSchema": "https://w3id.org/cwl/cwl#InputSchema",
     "LinkMergeMethod": "https://w3id.org/cwl/cwl#LinkMergeMethod",
+    "MapSchema": "https://w3id.org/cwl/salad#MapSchema",
     "MultipleInputFeatureRequirement": "https://w3id.org/cwl/cwl#MultipleInputFeatureRequirement",
     "OutputArraySchema": "https://w3id.org/cwl/cwl#OutputArraySchema",
     "OutputBinding": "https://w3id.org/cwl/cwl#OutputBinding",
@@ -12594,6 +13481,7 @@ _vocab = {
     "SoftwareRequirement": "https://w3id.org/cwl/cwl#SoftwareRequirement",
     "StepInputExpressionRequirement": "https://w3id.org/cwl/cwl#StepInputExpressionRequirement",
     "SubworkflowFeatureRequirement": "https://w3id.org/cwl/cwl#SubworkflowFeatureRequirement",
+    "UnionSchema": "https://w3id.org/cwl/salad#UnionSchema",
     "Workflow": "https://w3id.org/cwl/cwl#Workflow",
     "WorkflowOutputParameter": "https://w3id.org/cwl/cwl#WorkflowOutputParameter",
     "WorkflowStep": "https://w3id.org/cwl/cwl#WorkflowStep",
@@ -12618,6 +13506,7 @@ _vocab = {
     "float": "http://www.w3.org/2001/XMLSchema#float",
     "int": "http://www.w3.org/2001/XMLSchema#int",
     "long": "http://www.w3.org/2001/XMLSchema#long",
+    "map": "https://w3id.org/cwl/salad#map",
     "merge_flattened": "https://w3id.org/cwl/cwl#LinkMergeMethod/merge_flattened",
     "merge_nested": "https://w3id.org/cwl/cwl#LinkMergeMethod/merge_nested",
     "nested_crossproduct": "https://w3id.org/cwl/cwl#ScatterMethod/nested_crossproduct",
@@ -12626,12 +13515,18 @@ _vocab = {
     "stderr": "https://w3id.org/cwl/cwl#stderr",
     "stdout": "https://w3id.org/cwl/cwl#stdout",
     "string": "http://www.w3.org/2001/XMLSchema#string",
+    "union": "https://w3id.org/cwl/salad#union",
     "v1.0": "https://w3id.org/cwl/cwl#v1.0",
     "v1.0.dev4": "https://w3id.org/cwl/cwl#v1.0.dev4",
 }
 _rvocab = {
     "https://w3id.org/cwl/salad#Any": "Any",
     "https://w3id.org/cwl/salad#ArraySchema": "ArraySchema",
+    "https://w3id.org/cwl/cwl#CWLArraySchema": "CWLArraySchema",
+    "https://w3id.org/cwl/cwl#CWLInputFile": "CWLInputFile",
+    "https://w3id.org/cwl/cwl#CWLObjectType": "CWLObjectType",
+    "https://w3id.org/cwl/cwl#CWLRecordField": "CWLRecordField",
+    "https://w3id.org/cwl/cwl#CWLRecordSchema": "CWLRecordSchema",
     "https://w3id.org/cwl/cwl#CWLType": "CWLType",
     "https://w3id.org/cwl/cwl#CWLVersion": "CWLVersion",
     "https://w3id.org/cwl/cwl#CommandInputArraySchema": "CommandInputArraySchema",
@@ -12650,6 +13545,7 @@ _rvocab = {
     "https://w3id.org/cwl/cwl#Directory": "Directory",
     "https://w3id.org/cwl/cwl#Dirent": "Dirent",
     "https://w3id.org/cwl/cwl#DockerRequirement": "DockerRequirement",
+    "https://w3id.org/cwl/salad#Documented": "Documented",
     "https://w3id.org/cwl/salad#EnumSchema": "EnumSchema",
     "https://w3id.org/cwl/cwl#EnvVarRequirement": "EnvVarRequirement",
     "https://w3id.org/cwl/cwl#EnvironmentDef": "EnvironmentDef",
@@ -12668,6 +13564,7 @@ _rvocab = {
     "https://w3id.org/cwl/cwl#InputRecordSchema": "InputRecordSchema",
     "https://w3id.org/cwl/cwl#InputSchema": "InputSchema",
     "https://w3id.org/cwl/cwl#LinkMergeMethod": "LinkMergeMethod",
+    "https://w3id.org/cwl/salad#MapSchema": "MapSchema",
     "https://w3id.org/cwl/cwl#MultipleInputFeatureRequirement": "MultipleInputFeatureRequirement",
     "https://w3id.org/cwl/cwl#OutputArraySchema": "OutputArraySchema",
     "https://w3id.org/cwl/cwl#OutputBinding": "OutputBinding",
@@ -12693,6 +13590,7 @@ _rvocab = {
     "https://w3id.org/cwl/cwl#SoftwareRequirement": "SoftwareRequirement",
     "https://w3id.org/cwl/cwl#StepInputExpressionRequirement": "StepInputExpressionRequirement",
     "https://w3id.org/cwl/cwl#SubworkflowFeatureRequirement": "SubworkflowFeatureRequirement",
+    "https://w3id.org/cwl/salad#UnionSchema": "UnionSchema",
     "https://w3id.org/cwl/cwl#Workflow": "Workflow",
     "https://w3id.org/cwl/cwl#WorkflowOutputParameter": "WorkflowOutputParameter",
     "https://w3id.org/cwl/cwl#WorkflowStep": "WorkflowStep",
@@ -12717,6 +13615,7 @@ _rvocab = {
     "http://www.w3.org/2001/XMLSchema#float": "float",
     "http://www.w3.org/2001/XMLSchema#int": "int",
     "http://www.w3.org/2001/XMLSchema#long": "long",
+    "https://w3id.org/cwl/salad#map": "map",
     "https://w3id.org/cwl/cwl#LinkMergeMethod/merge_flattened": "merge_flattened",
     "https://w3id.org/cwl/cwl#LinkMergeMethod/merge_nested": "merge_nested",
     "https://w3id.org/cwl/cwl#ScatterMethod/nested_crossproduct": "nested_crossproduct",
@@ -12725,6 +13624,7 @@ _rvocab = {
     "https://w3id.org/cwl/cwl#stderr": "stderr",
     "https://w3id.org/cwl/cwl#stdout": "stdout",
     "http://www.w3.org/2001/XMLSchema#string": "string",
+    "https://w3id.org/cwl/salad#union": "union",
     "https://w3id.org/cwl/cwl#v1.0": "v1.0",
     "https://w3id.org/cwl/cwl#v1.0.dev4": "v1.0.dev4",
 }
@@ -12748,8 +13648,9 @@ PrimitiveTypeLoader = _EnumLoader(
     "PrimitiveType",
 )
 """
-Salad data types are based on Avro schema declarations.  Refer to the
-[Avro schema declaration documentation](https://avro.apache.org/docs/current/spec.html#schemas) for
+Names of salad data types (based on Avro schema declarations).
+
+Refer to the [Avro schema declaration documentation](https://avro.apache.org/docs/current/spec.html#schemas) for
 detailed information.
 
 null: no value
@@ -12768,6 +13669,46 @@ RecordFieldLoader = _RecordLoader(RecordField)
 RecordSchemaLoader = _RecordLoader(RecordSchema)
 EnumSchemaLoader = _RecordLoader(EnumSchema)
 ArraySchemaLoader = _RecordLoader(ArraySchema)
+MapSchemaLoader = _RecordLoader(MapSchema)
+UnionSchemaLoader = _RecordLoader(UnionSchema)
+CWLTypeLoader = _EnumLoader(
+    (
+        "null",
+        "boolean",
+        "int",
+        "long",
+        "float",
+        "double",
+        "string",
+        "File",
+        "Directory",
+    ),
+    "CWLType",
+)
+"""
+Extends primitive types with the concept of a file and directory as a builtin type.
+File: A File object
+Directory: A Directory object
+"""
+CWLArraySchemaLoader = _RecordLoader(CWLArraySchema)
+CWLRecordFieldLoader = _RecordLoader(CWLRecordField)
+CWLRecordSchemaLoader = _RecordLoader(CWLRecordSchema)
+FileLoader = _RecordLoader(File)
+DirectoryLoader = _RecordLoader(Directory)
+CWLObjectTypeLoader = _UnionLoader((), "CWLObjectTypeLoader")
+union_of_None_type_or_CWLObjectTypeLoader = _UnionLoader(
+    (
+        None_type,
+        CWLObjectTypeLoader,
+    )
+)
+array_of_union_of_None_type_or_CWLObjectTypeLoader = _ArrayLoader(
+    union_of_None_type_or_CWLObjectTypeLoader, False
+)
+map_of_union_of_None_type_or_CWLObjectTypeLoader = _MapLoader(
+    union_of_None_type_or_CWLObjectTypeLoader
+)
+CWLInputFileLoader = map_of_union_of_None_type_or_CWLObjectTypeLoader
 CWLVersionLoader = _EnumLoader(
     (
         "draft-2",
@@ -12788,27 +13729,6 @@ CWLVersionLoader = _EnumLoader(
 """
 Version symbols for published CWL document versions.
 """
-CWLTypeLoader = _EnumLoader(
-    (
-        "null",
-        "boolean",
-        "int",
-        "long",
-        "float",
-        "double",
-        "string",
-        "File",
-        "Directory",
-    ),
-    "CWLType",
-)
-"""
-Extends primitive types with the concept of a file and directory as a builtin type.
-File: A File object
-Directory: A Directory object
-"""
-FileLoader = _RecordLoader(File)
-DirectoryLoader = _RecordLoader(Directory)
 ExpressionLoader = _ExpressionLoader(str)
 InputRecordFieldLoader = _RecordLoader(InputRecordField)
 InputRecordSchemaLoader = _RecordLoader(InputRecordSchema)
@@ -12964,40 +13884,47 @@ SubworkflowFeatureRequirementLoader = _RecordLoader(SubworkflowFeatureRequiremen
 ScatterFeatureRequirementLoader = _RecordLoader(ScatterFeatureRequirement)
 MultipleInputFeatureRequirementLoader = _RecordLoader(MultipleInputFeatureRequirement)
 StepInputExpressionRequirementLoader = _RecordLoader(StepInputExpressionRequirement)
-uri_strtype_True_False_None = _URILoader(strtype, True, False, None)
-union_of_None_type_or_strtype = _UnionLoader(
+array_of_strtype = _ArrayLoader(strtype, True)
+union_of_None_type_or_strtype_or_array_of_strtype = _UnionLoader(
     (
         None_type,
         strtype,
+        array_of_strtype,
     )
 )
-union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype = _UnionLoader(
+uri_strtype_True_False_None = _URILoader(strtype, True, False, None)
+union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
     (
         PrimitiveTypeLoader,
         RecordSchemaLoader,
         EnumSchemaLoader,
         ArraySchemaLoader,
+        MapSchemaLoader,
+        UnionSchemaLoader,
         strtype,
     )
 )
-array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype = _ArrayLoader(
-    union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype
+array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _ArrayLoader(
+    union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
+    True,
 )
-union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype = _UnionLoader(
+union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
     (
         PrimitiveTypeLoader,
         RecordSchemaLoader,
         EnumSchemaLoader,
         ArraySchemaLoader,
+        MapSchemaLoader,
+        UnionSchemaLoader,
         strtype,
-        array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype,
+        array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
     )
 )
-typedsl_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_strtype,
+typedsl_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
     2,
 )
-array_of_RecordFieldLoader = _ArrayLoader(RecordFieldLoader)
+array_of_RecordFieldLoader = _ArrayLoader(RecordFieldLoader, True)
 union_of_None_type_or_array_of_RecordFieldLoader = _UnionLoader(
     (
         None_type,
@@ -13007,14 +13934,88 @@ union_of_None_type_or_array_of_RecordFieldLoader = _UnionLoader(
 idmap_fields_union_of_None_type_or_array_of_RecordFieldLoader = _IdMapLoader(
     union_of_None_type_or_array_of_RecordFieldLoader, "name", "type"
 )
-Record_symbolLoader = _EnumLoader(("record",), "Record_symbol")
-typedsl_Record_symbolLoader_2 = _TypeDSLLoader(Record_symbolLoader, 2)
-array_of_strtype = _ArrayLoader(strtype)
+Record_nameLoader = _EnumLoader(("record",), "Record_name")
+typedsl_Record_nameLoader_2 = _TypeDSLLoader(Record_nameLoader, 2)
+union_of_None_type_or_strtype = _UnionLoader(
+    (
+        None_type,
+        strtype,
+    )
+)
+uri_union_of_None_type_or_strtype_True_False_None = _URILoader(
+    union_of_None_type_or_strtype, True, False, None
+)
 uri_array_of_strtype_True_False_None = _URILoader(array_of_strtype, True, False, None)
-Enum_symbolLoader = _EnumLoader(("enum",), "Enum_symbol")
-typedsl_Enum_symbolLoader_2 = _TypeDSLLoader(Enum_symbolLoader, 2)
-Array_symbolLoader = _EnumLoader(("array",), "Array_symbol")
-typedsl_Array_symbolLoader_2 = _TypeDSLLoader(Array_symbolLoader, 2)
+Enum_nameLoader = _EnumLoader(("enum",), "Enum_name")
+typedsl_Enum_nameLoader_2 = _TypeDSLLoader(Enum_nameLoader, 2)
+union_of_None_type_or_booltype = _UnionLoader(
+    (
+        None_type,
+        booltype,
+    )
+)
+uri_union_of_None_type_or_booltype_False_True_2 = _URILoader(
+    union_of_None_type_or_booltype, False, True, 2
+)
+uri_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_RecordSchemaLoader_or_EnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
+    False,
+    True,
+    2,
+)
+Array_nameLoader = _EnumLoader(("array",), "Array_name")
+typedsl_Array_nameLoader_2 = _TypeDSLLoader(Array_nameLoader, 2)
+Map_nameLoader = _EnumLoader(("map",), "Map_name")
+typedsl_Map_nameLoader_2 = _TypeDSLLoader(Map_nameLoader, 2)
+Union_nameLoader = _EnumLoader(("union",), "Union_name")
+typedsl_Union_nameLoader_2 = _TypeDSLLoader(Union_nameLoader, 2)
+union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype = _UnionLoader(
+    (
+        PrimitiveTypeLoader,
+        CWLRecordSchemaLoader,
+        EnumSchemaLoader,
+        CWLArraySchemaLoader,
+        strtype,
+    )
+)
+array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype = _ArrayLoader(
+    union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype,
+    True,
+)
+union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype = _UnionLoader(
+    (
+        PrimitiveTypeLoader,
+        CWLRecordSchemaLoader,
+        EnumSchemaLoader,
+        CWLArraySchemaLoader,
+        strtype,
+        array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype,
+    )
+)
+uri_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype,
+    False,
+    True,
+    2,
+)
+cwl_array_nameLoader = _EnumLoader(("array",), "cwl_array_name")
+typedsl_cwl_array_nameLoader_2 = _TypeDSLLoader(cwl_array_nameLoader, 2)
+typedsl_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype_or_array_of_union_of_PrimitiveTypeLoader_or_CWLRecordSchemaLoader_or_EnumSchemaLoader_or_CWLArraySchemaLoader_or_strtype,
+    2,
+)
+array_of_CWLRecordFieldLoader = _ArrayLoader(CWLRecordFieldLoader, True)
+union_of_None_type_or_array_of_CWLRecordFieldLoader = _UnionLoader(
+    (
+        None_type,
+        array_of_CWLRecordFieldLoader,
+    )
+)
+idmap_fields_union_of_None_type_or_array_of_CWLRecordFieldLoader = _IdMapLoader(
+    union_of_None_type_or_array_of_CWLRecordFieldLoader, "name", "type"
+)
+cwl_record_nameLoader = _EnumLoader(("record",), "cwl_record_name")
+typedsl_cwl_record_nameLoader_2 = _TypeDSLLoader(cwl_record_nameLoader, 2)
 File_classLoader = _EnumLoader(("File",), "File_class")
 uri_File_classLoader_False_True_None = _URILoader(File_classLoader, False, True, None)
 uri_union_of_None_type_or_strtype_False_False_None = _URILoader(
@@ -13033,16 +14034,13 @@ union_of_FileLoader_or_DirectoryLoader = _UnionLoader(
     )
 )
 array_of_union_of_FileLoader_or_DirectoryLoader = _ArrayLoader(
-    union_of_FileLoader_or_DirectoryLoader
+    union_of_FileLoader_or_DirectoryLoader, True
 )
 union_of_None_type_or_array_of_union_of_FileLoader_or_DirectoryLoader = _UnionLoader(
     (
         None_type,
         array_of_union_of_FileLoader_or_DirectoryLoader,
     )
-)
-uri_union_of_None_type_or_strtype_True_False_None = _URILoader(
-    union_of_None_type_or_strtype, True, False, None
 )
 Directory_classLoader = _EnumLoader(("Directory",), "Directory_class")
 uri_Directory_classLoader_False_True_None = _URILoader(
@@ -13055,7 +14053,7 @@ union_of_strtype_or_ExpressionLoader = _UnionLoader(
     )
 )
 array_of_union_of_strtype_or_ExpressionLoader = _ArrayLoader(
-    union_of_strtype_or_ExpressionLoader
+    union_of_strtype_or_ExpressionLoader, True
 )
 union_of_None_type_or_strtype_or_ExpressionLoader_or_array_of_union_of_strtype_or_ExpressionLoader = _UnionLoader(
     (
@@ -13063,19 +14061,6 @@ union_of_None_type_or_strtype_or_ExpressionLoader_or_array_of_union_of_strtype_o
         strtype,
         ExpressionLoader,
         array_of_union_of_strtype_or_ExpressionLoader,
-    )
-)
-union_of_None_type_or_booltype = _UnionLoader(
-    (
-        None_type,
-        booltype,
-    )
-)
-union_of_None_type_or_strtype_or_array_of_strtype = _UnionLoader(
-    (
-        None_type,
-        strtype,
-        array_of_strtype,
     )
 )
 union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype = _UnionLoader(
@@ -13088,7 +14073,8 @@ union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_In
     )
 )
 array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype
+    union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
+    True,
 )
 union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13110,7 +14096,7 @@ union_of_None_type_or_CommandLineBindingLoader = _UnionLoader(
         CommandLineBindingLoader,
     )
 )
-array_of_InputRecordFieldLoader = _ArrayLoader(InputRecordFieldLoader)
+array_of_InputRecordFieldLoader = _ArrayLoader(InputRecordFieldLoader, True)
 union_of_None_type_or_array_of_InputRecordFieldLoader = _UnionLoader(
     (
         None_type,
@@ -13119,6 +14105,12 @@ union_of_None_type_or_array_of_InputRecordFieldLoader = _UnionLoader(
 )
 idmap_fields_union_of_None_type_or_array_of_InputRecordFieldLoader = _IdMapLoader(
     union_of_None_type_or_array_of_InputRecordFieldLoader, "name", "type"
+)
+uri_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
+    False,
+    True,
+    2,
 )
 union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13130,7 +14122,8 @@ union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_
     )
 )
 array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype
+    union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
+    True,
 )
 union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13152,7 +14145,7 @@ union_of_None_type_or_CommandOutputBindingLoader = _UnionLoader(
         CommandOutputBindingLoader,
     )
 )
-array_of_OutputRecordFieldLoader = _ArrayLoader(OutputRecordFieldLoader)
+array_of_OutputRecordFieldLoader = _ArrayLoader(OutputRecordFieldLoader, True)
 union_of_None_type_or_array_of_OutputRecordFieldLoader = _UnionLoader(
     (
         None_type,
@@ -13161,6 +14154,12 @@ union_of_None_type_or_array_of_OutputRecordFieldLoader = _UnionLoader(
 )
 idmap_fields_union_of_None_type_or_array_of_OutputRecordFieldLoader = _IdMapLoader(
     union_of_None_type_or_array_of_OutputRecordFieldLoader, "name", "type"
+)
+uri_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
+    False,
+    True,
+    2,
 )
 union_of_None_type_or_strtype_or_array_of_strtype_or_ExpressionLoader = _UnionLoader(
     (
@@ -13175,14 +14174,6 @@ uri_union_of_None_type_or_strtype_or_array_of_strtype_or_ExpressionLoader_True_F
     True,
     False,
     None,
-)
-union_of_None_type_or_FileLoader_or_DirectoryLoader_or_Any_type = _UnionLoader(
-    (
-        None_type,
-        FileLoader,
-        DirectoryLoader,
-        Any_type,
-    )
 )
 union_of_None_type_or_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13209,11 +14200,11 @@ union_of_None_type_or_strtype_or_ExpressionLoader = _UnionLoader(
 uri_union_of_None_type_or_strtype_or_ExpressionLoader_True_False_None = _URILoader(
     union_of_None_type_or_strtype_or_ExpressionLoader, True, False, None
 )
-array_of_InputParameterLoader = _ArrayLoader(InputParameterLoader)
+array_of_InputParameterLoader = _ArrayLoader(InputParameterLoader, True)
 idmap_inputs_array_of_InputParameterLoader = _IdMapLoader(
     array_of_InputParameterLoader, "id", "type"
 )
-array_of_OutputParameterLoader = _ArrayLoader(OutputParameterLoader)
+array_of_OutputParameterLoader = _ArrayLoader(OutputParameterLoader, True)
 idmap_outputs_array_of_OutputParameterLoader = _IdMapLoader(
     array_of_OutputParameterLoader, "id", "type"
 )
@@ -13234,7 +14225,8 @@ union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_Dock
     )
 )
 array_of_union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader = _ArrayLoader(
-    union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader
+    union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader,
+    True,
 )
 union_of_None_type_or_array_of_union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader = _UnionLoader(
     (
@@ -13265,7 +14257,8 @@ union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_Dock
     )
 )
 array_of_union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader_or_Any_type = _ArrayLoader(
-    union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader_or_Any_type
+    union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader_or_Any_type,
+    True,
 )
 union_of_None_type_or_array_of_union_of_InlineJavascriptRequirementLoader_or_SchemaDefRequirementLoader_or_DockerRequirementLoader_or_SoftwareRequirementLoader_or_InitialWorkDirRequirementLoader_or_EnvVarRequirementLoader_or_ShellCommandRequirementLoader_or_ResourceRequirementLoader_or_SubworkflowFeatureRequirementLoader_or_ScatterFeatureRequirementLoader_or_MultipleInputFeatureRequirementLoader_or_StepInputExpressionRequirementLoader_or_Any_type = _UnionLoader(
     (
@@ -13315,7 +14308,8 @@ union_of_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoa
     )
 )
 array_of_union_of_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader = _ArrayLoader(
-    union_of_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader
+    union_of_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader,
+    True,
 )
 union_of_None_type_or_strtype_or_ExpressionLoader_or_array_of_strtype = _UnionLoader(
     (
@@ -13335,7 +14329,8 @@ union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSche
     )
 )
 array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype
+    union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
+    True,
 )
 union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13351,7 +14346,9 @@ typedsl_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInput
     union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
     2,
 )
-array_of_CommandInputRecordFieldLoader = _ArrayLoader(CommandInputRecordFieldLoader)
+array_of_CommandInputRecordFieldLoader = _ArrayLoader(
+    CommandInputRecordFieldLoader, True
+)
 union_of_None_type_or_array_of_CommandInputRecordFieldLoader = _UnionLoader(
     (
         None_type,
@@ -13363,6 +14360,12 @@ idmap_fields_union_of_None_type_or_array_of_CommandInputRecordFieldLoader = (
         union_of_None_type_or_array_of_CommandInputRecordFieldLoader, "name", "type"
     )
 )
+uri_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
+    False,
+    True,
+    2,
+)
 union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
         CWLTypeLoader,
@@ -13373,7 +14376,8 @@ union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSc
     )
 )
 array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype
+    union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype,
+    True,
 )
 union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13389,7 +14393,9 @@ typedsl_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutp
     union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype,
     2,
 )
-array_of_CommandOutputRecordFieldLoader = _ArrayLoader(CommandOutputRecordFieldLoader)
+array_of_CommandOutputRecordFieldLoader = _ArrayLoader(
+    CommandOutputRecordFieldLoader, True
+)
 union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = _UnionLoader(
     (
         None_type,
@@ -13400,6 +14406,12 @@ idmap_fields_union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = (
     _IdMapLoader(
         union_of_None_type_or_array_of_CommandOutputRecordFieldLoader, "name", "type"
     )
+)
+uri_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
+    union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype,
+    False,
+    True,
+    2,
 )
 union_of_None_type_or_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -13437,11 +14449,11 @@ CommandLineTool_classLoader = _EnumLoader(("CommandLineTool",), "CommandLineTool
 uri_CommandLineTool_classLoader_False_True_None = _URILoader(
     CommandLineTool_classLoader, False, True, None
 )
-array_of_CommandInputParameterLoader = _ArrayLoader(CommandInputParameterLoader)
+array_of_CommandInputParameterLoader = _ArrayLoader(CommandInputParameterLoader, True)
 idmap_inputs_array_of_CommandInputParameterLoader = _IdMapLoader(
     array_of_CommandInputParameterLoader, "id", "type"
 )
-array_of_CommandOutputParameterLoader = _ArrayLoader(CommandOutputParameterLoader)
+array_of_CommandOutputParameterLoader = _ArrayLoader(CommandOutputParameterLoader, True)
 idmap_outputs_array_of_CommandOutputParameterLoader = _IdMapLoader(
     array_of_CommandOutputParameterLoader, "id", "type"
 )
@@ -13453,7 +14465,7 @@ union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader = _UnionLoader(
     )
 )
 array_of_union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader = (
-    _ArrayLoader(union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader)
+    _ArrayLoader(union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader, True)
 )
 union_of_None_type_or_array_of_union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader = _UnionLoader(
     (
@@ -13461,7 +14473,7 @@ union_of_None_type_or_array_of_union_of_strtype_or_ExpressionLoader_or_CommandLi
         array_of_union_of_strtype_or_ExpressionLoader_or_CommandLineBindingLoader,
     )
 )
-array_of_inttype = _ArrayLoader(inttype)
+array_of_inttype = _ArrayLoader(inttype, True)
 union_of_None_type_or_array_of_inttype = _UnionLoader(
     (
         None_type,
@@ -13480,7 +14492,7 @@ SoftwareRequirement_classLoader = _EnumLoader(
 uri_SoftwareRequirement_classLoader_False_True_None = _URILoader(
     SoftwareRequirement_classLoader, False, True, None
 )
-array_of_SoftwarePackageLoader = _ArrayLoader(SoftwarePackageLoader)
+array_of_SoftwarePackageLoader = _ArrayLoader(SoftwarePackageLoader, True)
 idmap_packages_array_of_SoftwarePackageLoader = _IdMapLoader(
     array_of_SoftwarePackageLoader, "package", "specs"
 )
@@ -13503,7 +14515,8 @@ union_of_FileLoader_or_DirectoryLoader_or_DirentLoader_or_strtype_or_ExpressionL
     )
 )
 array_of_union_of_FileLoader_or_DirectoryLoader_or_DirentLoader_or_strtype_or_ExpressionLoader = _ArrayLoader(
-    union_of_FileLoader_or_DirectoryLoader_or_DirentLoader_or_strtype_or_ExpressionLoader
+    union_of_FileLoader_or_DirectoryLoader_or_DirentLoader_or_strtype_or_ExpressionLoader,
+    True,
 )
 union_of_array_of_union_of_FileLoader_or_DirectoryLoader_or_DirentLoader_or_strtype_or_ExpressionLoader_or_strtype_or_ExpressionLoader = _UnionLoader(
     (
@@ -13518,7 +14531,7 @@ EnvVarRequirement_classLoader = _EnumLoader(
 uri_EnvVarRequirement_classLoader_False_True_None = _URILoader(
     EnvVarRequirement_classLoader, False, True, None
 )
-array_of_EnvironmentDefLoader = _ArrayLoader(EnvironmentDefLoader)
+array_of_EnvironmentDefLoader = _ArrayLoader(EnvironmentDefLoader, True)
 idmap_envDef_array_of_EnvironmentDefLoader = _IdMapLoader(
     array_of_EnvironmentDefLoader, "envName", "envValue"
 )
@@ -13562,7 +14575,7 @@ uri_ExpressionTool_classLoader_False_True_None = _URILoader(
     ExpressionTool_classLoader, False, True, None
 )
 array_of_ExpressionToolOutputParameterLoader = _ArrayLoader(
-    ExpressionToolOutputParameterLoader
+    ExpressionToolOutputParameterLoader, True
 )
 idmap_outputs_array_of_ExpressionToolOutputParameterLoader = _IdMapLoader(
     array_of_ExpressionToolOutputParameterLoader, "id", "type"
@@ -13579,7 +14592,7 @@ union_of_None_type_or_LinkMergeMethodLoader = _UnionLoader(
 uri_union_of_None_type_or_strtype_or_array_of_strtype_False_False_2 = _URILoader(
     union_of_None_type_or_strtype_or_array_of_strtype, False, False, 2
 )
-array_of_WorkflowStepInputLoader = _ArrayLoader(WorkflowStepInputLoader)
+array_of_WorkflowStepInputLoader = _ArrayLoader(WorkflowStepInputLoader, True)
 idmap_in__array_of_WorkflowStepInputLoader = _IdMapLoader(
     array_of_WorkflowStepInputLoader, "id", "source"
 )
@@ -13590,7 +14603,7 @@ union_of_strtype_or_WorkflowStepOutputLoader = _UnionLoader(
     )
 )
 array_of_union_of_strtype_or_WorkflowStepOutputLoader = _ArrayLoader(
-    union_of_strtype_or_WorkflowStepOutputLoader
+    union_of_strtype_or_WorkflowStepOutputLoader, True
 )
 union_of_array_of_union_of_strtype_or_WorkflowStepOutputLoader = _UnionLoader(
     (array_of_union_of_strtype_or_WorkflowStepOutputLoader,)
@@ -13603,7 +14616,7 @@ uri_union_of_array_of_union_of_strtype_or_WorkflowStepOutputLoader_True_False_No
         None,
     )
 )
-array_of_Any_type = _ArrayLoader(Any_type)
+array_of_Any_type = _ArrayLoader(Any_type, True)
 union_of_None_type_or_array_of_Any_type = _UnionLoader(
     (
         None_type,
@@ -13645,11 +14658,13 @@ Workflow_classLoader = _EnumLoader(("Workflow",), "Workflow_class")
 uri_Workflow_classLoader_False_True_None = _URILoader(
     Workflow_classLoader, False, True, None
 )
-array_of_WorkflowOutputParameterLoader = _ArrayLoader(WorkflowOutputParameterLoader)
+array_of_WorkflowOutputParameterLoader = _ArrayLoader(
+    WorkflowOutputParameterLoader, True
+)
 idmap_outputs_array_of_WorkflowOutputParameterLoader = _IdMapLoader(
     array_of_WorkflowOutputParameterLoader, "id", "type"
 )
-array_of_WorkflowStepLoader = _ArrayLoader(WorkflowStepLoader)
+array_of_WorkflowStepLoader = _ArrayLoader(WorkflowStepLoader, True)
 union_of_array_of_WorkflowStepLoader = _UnionLoader((array_of_WorkflowStepLoader,))
 idmap_steps_union_of_array_of_WorkflowStepLoader = _IdMapLoader(
     union_of_array_of_WorkflowStepLoader, "id", "None"
@@ -13687,7 +14702,7 @@ union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader = _Unio
 )
 array_of_union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader = (
     _ArrayLoader(
-        union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader
+        union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader, True
     )
 )
 union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader_or_array_of_union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader = _UnionLoader(
@@ -13696,6 +14711,19 @@ union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader_or_arra
         ExpressionToolLoader,
         WorkflowLoader,
         array_of_union_of_CommandLineToolLoader_or_ExpressionToolLoader_or_WorkflowLoader,
+    )
+)
+
+CWLObjectTypeLoader.add_loaders(
+    (
+        booltype,
+        inttype,
+        floattype,
+        strtype,
+        FileLoader,
+        DirectoryLoader,
+        array_of_union_of_None_type_or_CWLObjectTypeLoader,
+        map_of_union_of_None_type_or_CWLObjectTypeLoader,
     )
 )
 
