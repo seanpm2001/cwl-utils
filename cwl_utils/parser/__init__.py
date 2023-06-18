@@ -107,12 +107,14 @@ SoftwareRequirementTypes = (
     cwl_v1_2.SoftwareRequirement,
 )
 """Type union for a CWL v1.x SoftwareRequirement object."""
-ArraySchema = Union[cwl_v1_0.ArraySchema, cwl_v1_1.ArraySchema, cwl_v1_2.ArraySchema]
+ArraySchema = Union[
+    cwl_v1_0.CWLArraySchema, cwl_v1_1.CWLArraySchema, cwl_v1_2.CWLArraySchema
+]
 """Type Union for a CWL v1.x ArraySchema object."""
 EnumSchema = Union[cwl_v1_0.EnumSchema, cwl_v1_1.EnumSchema, cwl_v1_2.EnumSchema]
 """Type Union for a CWL v1.x EnumSchema object."""
 RecordSchema = Union[
-    cwl_v1_0.RecordSchema, cwl_v1_1.RecordSchema, cwl_v1_2.RecordSchema
+    cwl_v1_0.CWLRecordSchema, cwl_v1_1.CWLRecordSchema, cwl_v1_2.CWLRecordSchema
 ]
 """Type Union for a CWL v1.x RecordSchema object."""
 File = Union[cwl_v1_0.File, cwl_v1_1.File, cwl_v1_2.File]

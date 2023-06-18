@@ -315,9 +315,9 @@ def test_v1_0_type_output_source_record() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.RecordSchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLRecordSchema)
     fields = cast(
-        MutableSequence[cwl_utils.parser.cwl_v1_0.RecordField], source_type.fields
+        MutableSequence[cwl_utils.parser.cwl_v1_0.CWLRecordField], source_type.fields
     )
     assert len(fields) == 2
     assert fields[0].type == "File"
@@ -332,7 +332,7 @@ def test_v1_0_type_for_output_source_with_single_scatter_step() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -344,8 +344,8 @@ def test_v1_0_type_for_output_source_with_nested_crossproduct_scatter_step() -> 
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items.items == "string"
 
 
@@ -356,7 +356,7 @@ def test_v1_0_type_for_output_source_with_flat_crossproduct_scatter_step() -> No
     source_type = cwl_utils.parser.utils.type_for_source(
         process=cwl_obj, sourcenames=cwl_obj.outputs[0].outputSource
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -369,8 +369,8 @@ def test_v1_0_type_for_source_with_multiple_entries_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -383,7 +383,7 @@ def test_v1_0_type_for_source_with_multiple_entries_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -400,8 +400,8 @@ def test_v1_0_type_for_source_with_single_entry_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -418,7 +418,7 @@ def test_v1_0_type_for_source_with_single_entry_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_0.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -676,9 +676,9 @@ def test_v1_1_type_output_source_record() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.RecordSchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLRecordSchema)
     fields = cast(
-        MutableSequence[cwl_utils.parser.cwl_v1_1.RecordField], source_type.fields
+        MutableSequence[cwl_utils.parser.cwl_v1_1.CWLRecordField], source_type.fields
     )
     assert len(fields) == 2
     assert fields[0].type == "File"
@@ -693,7 +693,7 @@ def test_v1_1_type_for_output_source_with_single_scatter_step() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -705,8 +705,8 @@ def test_v1_1_type_for_output_source_with_nested_crossproduct_scatter_step() -> 
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items.items == "string"
 
 
@@ -718,7 +718,7 @@ def test_v1_1_type_for_output_source_with_flat_crossproduct_scatter_step() -> No
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -731,8 +731,8 @@ def test_v1_1_type_for_source_with_multiple_entries_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -745,7 +745,7 @@ def test_v1_1_type_for_source_with_multiple_entries_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -762,8 +762,8 @@ def test_v1_1_type_for_source_with_single_entry_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -780,7 +780,7 @@ def test_v1_1_type_for_source_with_single_entry_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_1.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -1038,9 +1038,9 @@ def test_v1_2_type_output_source_record() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.RecordSchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLRecordSchema)
     fields = cast(
-        MutableSequence[cwl_utils.parser.cwl_v1_2.RecordField], source_type.fields
+        MutableSequence[cwl_utils.parser.cwl_v1_2.CWLRecordField], source_type.fields
     )
     assert len(fields) == 2
     assert fields[0].type == "File"
@@ -1055,7 +1055,7 @@ def test_v1_2_type_for_output_source_with_single_scatter_step() -> None:
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -1067,8 +1067,8 @@ def test_v1_2_type_for_output_source_with_nested_crossproduct_scatter_step() -> 
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items.items == "string"
 
 
@@ -1080,7 +1080,7 @@ def test_v1_2_type_for_output_source_with_flat_crossproduct_scatter_step() -> No
         process=cwl_obj,
         sourcenames=cwl_obj.outputs[0].outputSource,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -1093,8 +1093,8 @@ def test_v1_2_type_for_source_with_multiple_entries_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -1107,7 +1107,7 @@ def test_v1_2_type_for_source_with_multiple_entries_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -1124,8 +1124,8 @@ def test_v1_2_type_for_source_with_single_entry_merge_nested() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
-    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
+    assert isinstance(source_type.items, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items.items == "File"
 
 
@@ -1142,7 +1142,7 @@ def test_v1_2_type_for_source_with_single_entry_merge_flattened() -> None:
         sourcenames=cwl_obj.steps[0].in_[0].source,
         linkMerge=cwl_obj.steps[0].in_[0].linkMerge,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "File"
 
 
@@ -1179,7 +1179,7 @@ def test_v1_2_type_for_source_with_multiple_entries_all_non_null() -> None:
         sourcenames=cwl_obj.outputs[0].outputSource,
         pickValue=cwl_obj.outputs[0].pickValue,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "string"
 
 
@@ -1216,5 +1216,5 @@ def test_v1_2_type_for_source_with_single_entry_all_non_null() -> None:
         sourcenames=cwl_obj.outputs[0].outputSource,
         pickValue=cwl_obj.outputs[0].pickValue,
     )
-    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.ArraySchema)
+    assert isinstance(source_type, cwl_utils.parser.cwl_v1_2.CWLArraySchema)
     assert source_type.items == "string"

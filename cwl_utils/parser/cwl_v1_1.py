@@ -3115,7 +3115,7 @@ class OutputSchema(IOSchema):
     pass
 
 
-class InputRecordField(RecordField, FieldBase, InputFormat, LoadContents):
+class InputRecordField(CWLRecordField, FieldBase, InputFormat, LoadContents):
     def __init__(
         self,
         name: Any,
@@ -3240,7 +3240,7 @@ class InputRecordField(RecordField, FieldBase, InputFormat, LoadContents):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2,
+                typedsl_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_2,
                 baseuri,
                 loadingOptions,
             )
@@ -4142,7 +4142,7 @@ class InputArraySchema(CWLArraySchema, InputSchema):
     attrs = frozenset(["items", "type", "label", "doc", "name"])
 
 
-class OutputRecordField(RecordField, FieldBase, OutputFormat):
+class OutputRecordField(CWLRecordField, FieldBase, OutputFormat):
     def __init__(
         self,
         name: Any,
@@ -4259,7 +4259,7 @@ class OutputRecordField(RecordField, FieldBase, OutputFormat):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2,
+                typedsl_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_2,
                 baseuri,
                 loadingOptions,
             )
@@ -6606,7 +6606,7 @@ class CommandInputRecordField(InputRecordField, CommandLineBindable):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2,
+                typedsl_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_2,
                 baseuri,
                 loadingOptions,
             )
@@ -7768,7 +7768,7 @@ class CommandOutputRecordField(OutputRecordField):
         try:
             type = load_field(
                 _doc.get("type"),
-                typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2,
+                typedsl_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_2,
                 baseuri,
                 loadingOptions,
             )
@@ -16098,47 +16098,6 @@ union_of_None_type_or_strtype_or_ExpressionLoader = _UnionLoader(
 uri_union_of_None_type_or_strtype_or_ExpressionLoader_True_False_None = _URILoader(
     union_of_None_type_or_strtype_or_ExpressionLoader, True, False, None
 )
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        InputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-    )
-)
-array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    True,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        InputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-        array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    )
-)
-typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_InputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    2,
-)
-array_of_InputRecordFieldLoader = _ArrayLoader(InputRecordFieldLoader, True)
-union_of_None_type_or_array_of_InputRecordFieldLoader = _UnionLoader(
-    (
-        None_type,
-        array_of_InputRecordFieldLoader,
-    )
-)
-idmap_fields_union_of_None_type_or_array_of_InputRecordFieldLoader = _IdMapLoader(
-    union_of_None_type_or_array_of_InputRecordFieldLoader, "name", "type"
-)
 union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype = _UnionLoader(
     (
         CWLTypeLoader,
@@ -16162,52 +16121,25 @@ union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_In
         array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
     )
 )
+typedsl_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
+    2,
+)
+array_of_InputRecordFieldLoader = _ArrayLoader(InputRecordFieldLoader, True)
+union_of_None_type_or_array_of_InputRecordFieldLoader = _UnionLoader(
+    (
+        None_type,
+        array_of_InputRecordFieldLoader,
+    )
+)
+idmap_fields_union_of_None_type_or_array_of_InputRecordFieldLoader = _IdMapLoader(
+    union_of_None_type_or_array_of_InputRecordFieldLoader, "name", "type"
+)
 uri_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
     union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
     False,
     True,
     2,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        OutputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-    )
-)
-array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    True,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        OutputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-        array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    )
-)
-typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_OutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    2,
-)
-array_of_OutputRecordFieldLoader = _ArrayLoader(OutputRecordFieldLoader, True)
-union_of_None_type_or_array_of_OutputRecordFieldLoader = _UnionLoader(
-    (
-        None_type,
-        array_of_OutputRecordFieldLoader,
-    )
-)
-idmap_fields_union_of_None_type_or_array_of_OutputRecordFieldLoader = _IdMapLoader(
-    union_of_None_type_or_array_of_OutputRecordFieldLoader, "name", "type"
 )
 union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -16231,6 +16163,20 @@ union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_
         strtype,
         array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
     )
+)
+typedsl_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
+    2,
+)
+array_of_OutputRecordFieldLoader = _ArrayLoader(OutputRecordFieldLoader, True)
+union_of_None_type_or_array_of_OutputRecordFieldLoader = _UnionLoader(
+    (
+        None_type,
+        array_of_OutputRecordFieldLoader,
+    )
+)
+idmap_fields_union_of_None_type_or_array_of_OutputRecordFieldLoader = _IdMapLoader(
+    union_of_None_type_or_array_of_OutputRecordFieldLoader, "name", "type"
 )
 uri_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
     union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
@@ -16402,51 +16348,6 @@ union_of_None_type_or_CommandLineBindingLoader = _UnionLoader(
         CommandLineBindingLoader,
     )
 )
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        CommandInputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-    )
-)
-array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    True,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        CommandInputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-        array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    )
-)
-typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    2,
-)
-array_of_CommandInputRecordFieldLoader = _ArrayLoader(
-    CommandInputRecordFieldLoader, True
-)
-union_of_None_type_or_array_of_CommandInputRecordFieldLoader = _UnionLoader(
-    (
-        None_type,
-        array_of_CommandInputRecordFieldLoader,
-    )
-)
-idmap_fields_union_of_None_type_or_array_of_CommandInputRecordFieldLoader = (
-    _IdMapLoader(
-        union_of_None_type_or_array_of_CommandInputRecordFieldLoader, "name", "type"
-    )
-)
 union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype = _UnionLoader(
     (
         CWLTypeLoader,
@@ -16470,62 +16371,29 @@ union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSche
         array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
     )
 )
+typedsl_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
+    2,
+)
+array_of_CommandInputRecordFieldLoader = _ArrayLoader(
+    CommandInputRecordFieldLoader, True
+)
+union_of_None_type_or_array_of_CommandInputRecordFieldLoader = _UnionLoader(
+    (
+        None_type,
+        array_of_CommandInputRecordFieldLoader,
+    )
+)
+idmap_fields_union_of_None_type_or_array_of_CommandInputRecordFieldLoader = (
+    _IdMapLoader(
+        union_of_None_type_or_array_of_CommandInputRecordFieldLoader, "name", "type"
+    )
+)
 uri_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
     union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandInputRecordSchemaLoader_or_CommandInputEnumSchemaLoader_or_CommandInputArraySchemaLoader_or_strtype,
     False,
     True,
     2,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        CommandOutputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-    )
-)
-array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _ArrayLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    True,
-)
-union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype = _UnionLoader(
-    (
-        CWLTypeLoader,
-        RecordSchemaLoader,
-        CommandOutputEnumSchemaLoader,
-        ArraySchemaLoader,
-        MapSchemaLoader,
-        UnionSchemaLoader,
-        strtype,
-        array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    )
-)
-typedsl_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_RecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_ArraySchemaLoader_or_MapSchemaLoader_or_UnionSchemaLoader_or_strtype,
-    2,
-)
-union_of_None_type_or_CommandOutputBindingLoader = _UnionLoader(
-    (
-        None_type,
-        CommandOutputBindingLoader,
-    )
-)
-array_of_CommandOutputRecordFieldLoader = _ArrayLoader(
-    CommandOutputRecordFieldLoader, True
-)
-union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = _UnionLoader(
-    (
-        None_type,
-        array_of_CommandOutputRecordFieldLoader,
-    )
-)
-idmap_fields_union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = (
-    _IdMapLoader(
-        union_of_None_type_or_array_of_CommandOutputRecordFieldLoader, "name", "type"
-    )
 )
 union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype = _UnionLoader(
     (
@@ -16548,6 +16416,30 @@ union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSc
         CommandOutputArraySchemaLoader,
         strtype,
         array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype,
+    )
+)
+typedsl_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
+    union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype,
+    2,
+)
+union_of_None_type_or_CommandOutputBindingLoader = _UnionLoader(
+    (
+        None_type,
+        CommandOutputBindingLoader,
+    )
+)
+array_of_CommandOutputRecordFieldLoader = _ArrayLoader(
+    CommandOutputRecordFieldLoader, True
+)
+union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = _UnionLoader(
+    (
+        None_type,
+        array_of_CommandOutputRecordFieldLoader,
+    )
+)
+idmap_fields_union_of_None_type_or_array_of_CommandOutputRecordFieldLoader = (
+    _IdMapLoader(
+        union_of_None_type_or_array_of_CommandOutputRecordFieldLoader, "name", "type"
     )
 )
 uri_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_CommandOutputRecordSchemaLoader_or_CommandOutputEnumSchemaLoader_or_CommandOutputArraySchemaLoader_or_strtype_False_True_2 = _URILoader(
@@ -16718,14 +16610,6 @@ union_of_inttype_or_ExpressionLoader = _UnionLoader(
         inttype,
         ExpressionLoader,
     )
-)
-typedsl_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_OutputRecordSchemaLoader_or_OutputEnumSchemaLoader_or_OutputArraySchemaLoader_or_strtype,
-    2,
-)
-typedsl_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_2 = _TypeDSLLoader(
-    union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype_or_array_of_union_of_CWLTypeLoader_or_InputRecordSchemaLoader_or_InputEnumSchemaLoader_or_InputArraySchemaLoader_or_strtype,
-    2,
 )
 union_of_None_type_or_InputBindingLoader = _UnionLoader(
     (

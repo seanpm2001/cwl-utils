@@ -36,7 +36,7 @@ SrcSink = namedtuple("SrcSink", ["src", "sink", "linkMerge", "message"])
 
 
 def _compare_records(
-    src: cwl.RecordSchema, sink: cwl.RecordSchema, strict: bool = False
+    src: cwl.CWLRecordSchema, sink: cwl.CWLRecordSchema, strict: bool = False
 ) -> bool:
     """
     Compare two records, ensuring they have compatible fields.
@@ -73,9 +73,11 @@ def _compare_records(
 
 
 def _compare_type(type1: Any, type2: Any) -> bool:
-    if isinstance(type1, cwl.ArraySchema) and isinstance(type2, cwl.ArraySchema):
+    if isinstance(type1, cwl.CWLArraySchema) and isinstance(type2, cwl.CWLArraySchema):
         return _compare_type(type1.items, type2.items)
-    elif isinstance(type1, cwl.RecordSchema) and isinstance(type2, cwl.RecordSchema):
+    elif isinstance(type1, cwl.CWLRecordSchema) and isinstance(
+        type2, cwl.CWLRecordSchema
+    ):
         fields1 = {
             cwl.shortname(field.name): field.type for field in (type1.fields or {})
         }
@@ -167,9 +169,9 @@ def can_assign_src_to_sink(src: Any, sink: Any, strict: bool = False) -> bool:
     """
     if src == "Any" or sink == "Any":
         return True
-    if isinstance(src, cwl.ArraySchema) and isinstance(sink, cwl.ArraySchema):
+    if isinstance(src, cwl.CWLArraySchema) and isinstance(sink, cwl.CWLArraySchema):
         return can_assign_src_to_sink(src.items, sink.items, strict)
-    if isinstance(src, cwl.RecordSchema) and isinstance(sink, cwl.RecordSchema):
+    if isinstance(src, cwl.CWLRecordSchema) and isinstance(sink, cwl.CWLRecordSchema):
         return _compare_records(src, sink, strict)
     if isinstance(src, MutableSequence):
         if strict:
@@ -256,7 +258,7 @@ def check_types(
         return "exception"
     if linkMerge == "merge_nested":
         return check_types(
-            cwl.ArraySchema(items=srctype, type="array"), sinktype, None, None
+            cwl.CWLArraySchema(items=srctype, type="array"), sinktype, None, None
         )
     if linkMerge == "merge_flattened":
         return check_types(merge_flatten_type(srctype), sinktype, None, None)
@@ -390,9 +392,9 @@ def merge_flatten_type(src: Any) -> Any:
     """Return the merge flattened type of the source type."""
     if isinstance(src, MutableSequence):
         return [merge_flatten_type(t) for t in src]
-    if isinstance(src, cwl.ArraySchema):
+    if isinstance(src, cwl.CWLArraySchema):
         return src
-    return cwl.ArraySchema(type="array", items=src)
+    return cwl.CWLArraySchema(type="array", items=src)
 
 
 def type_for_step_input(
@@ -412,7 +414,7 @@ def type_for_step_input(
             ):
                 input_type = step_input.type
                 if step.scatter is not None and in_.id in aslist(step.scatter):
-                    input_type = cwl.ArraySchema(items=input_type, type="array")
+                    input_type = cwl.CWLArraySchema(items=input_type, type="array")
                 return input_type
     return "Any"
 
@@ -434,11 +436,13 @@ def type_for_step_output(
                 if step.scatter is not None:
                     if step.scatterMethod == "nested_crossproduct":
                         for _ in range(len(aslist(step.scatter))):
-                            output_type = cwl.ArraySchema(
+                            output_type = cwl.CWLArraySchema(
                                 items=output_type, type="array"
                             )
                     else:
-                        output_type = cwl.ArraySchema(items=output_type, type="array")
+                        output_type = cwl.CWLArraySchema(
+                            items=output_type, type="array"
+                        )
                 return output_type
     raise ValidationException(
         "param {} not found in {}.".format(
@@ -462,11 +466,11 @@ def type_for_source(
         if scatter_context[0] is not None:
             if scatter_context[0][1] == "nested_crossproduct":
                 for _ in range(scatter_context[0][0]):
-                    new_type = cwl.ArraySchema(items=new_type, type="array")
+                    new_type = cwl.CWLArraySchema(items=new_type, type="array")
             else:
-                new_type = cwl.ArraySchema(items=new_type, type="array")
+                new_type = cwl.CWLArraySchema(items=new_type, type="array")
         if linkMerge == "merge_nested":
-            new_type = cwl.ArraySchema(items=new_type, type="array")
+            new_type = cwl.CWLArraySchema(items=new_type, type="array")
         elif linkMerge == "merge_flattened":
             new_type = merge_flatten_type(new_type)
         return new_type
@@ -482,18 +486,18 @@ def type_for_source(
             if sc is not None:
                 if sc[1] == "nested_crossproduct":
                     for _ in range(sc[0]):
-                        cur_type = cwl.ArraySchema(items=cur_type, type="array")
+                        cur_type = cwl.CWLArraySchema(items=cur_type, type="array")
                 else:
-                    cur_type = cwl.ArraySchema(items=cur_type, type="array")
+                    cur_type = cwl.CWLArraySchema(items=cur_type, type="array")
             new_type.append(cur_type)
     if len(new_type) == 1:
         new_type = new_type[0]
     if linkMerge == "merge_nested":
-        return cwl.ArraySchema(items=new_type, type="array")
+        return cwl.CWLArraySchema(items=new_type, type="array")
     elif linkMerge == "merge_flattened":
         return merge_flatten_type(new_type)
     elif isinstance(sourcenames, List) and len(sourcenames) > 1:
-        return cwl.ArraySchema(items=new_type, type="array")
+        return cwl.CWLArraySchema(items=new_type, type="array")
     else:
         return new_type
 
